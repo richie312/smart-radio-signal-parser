@@ -12,4 +12,4 @@ services:
 
     devices:
       - /dev/bus/usb:/dev/bus/usb
-    command: rtl_tcp -a 0.0.0.0 -p 1234 -g 38 -f 819000 -g 38.6 -s 2048000
+    command: rtl_tcp -a 0.0.0.0 -p 1234 -g 38 -f 819000 -s 2048000
