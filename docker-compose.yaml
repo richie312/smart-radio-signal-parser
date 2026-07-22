@@ -1,9 +1,15 @@
 services:
   rtl_tcp:
-    image: hertzg/rtl_tcp
     container_name: rtl_tcp
+
+    build:
+      context: .
+      dockerfile: Dockerfile
+
     restart: unless-stopped
+
     network_mode: host
+
     devices:
       - /dev/bus/usb:/dev/bus/usb
     command: rtl_tcp -a 0.0.0.0 -p 1234 -g 38 -f 819000 -g 38.6 -s 2048000
