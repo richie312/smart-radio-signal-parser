@@ -1,0 +1,5 @@
+-a 0.0.0.0     Listen on all interfaces
+-p 1234        TCP port
+-f 819000      Initial frequency (819 kHz)
+-g 38.6        Manual gain
+-s 2048000     Sample rate (2.048 MSPS)
