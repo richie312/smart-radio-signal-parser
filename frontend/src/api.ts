@@ -1,4 +1,4 @@
-import type { AnalyticsSummary, AnalyticsTimeseries, AudioConfig, AircraftSummary, Page, Problem, SystemStatus } from './contracts';
+import type { AnalyticsSummary, AnalyticsTimeseries, AudioConfig, AircraftSummary, ComponentStatus, Page, Problem, SystemStatus } from './contracts';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 

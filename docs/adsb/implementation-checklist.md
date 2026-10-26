@@ -10,9 +10,12 @@ Track against the approved specifications. The shared contracts in [12](12-share
 - [x] Inspect Docker containers and networks read-only.
 - [x] Verify the Docker route from `my_rasp_network` to the supplied LAN hosts: the network is `172.19.0.0/16`, currently contains only `redis-server`, and that container can reach `192.168.1.10:1234` and `192.168.1.50:3306`.
 - [x] Identify receiver and database protocol greetings: `.10:1234` returns `RTL0` (rtl_tcp); `.50:3306` returns a MySQL 8.0.45 handshake. Common decoded feed ports 30002, 30003, 30005, and 30152 on `.10` did not accept connections.
-- [ ] **Blocked:** verify MySQL authentication, schema version, and operator provisioning. No credentials were supplied to the test process, and no schema query or write was attempted. No local `mysql` container exists; use the existing host at `.50`.
-- [ ] **Blocked:** verify decoder acquisition/output and physical USB release. The dongle is reachable through rtl_tcp on `.10`, but the selected `readsb` candidate is documented for direct USB and no decoded feed was found on the probed ports. The active USB owner and safe mode-switch behavior on `.10` remain unverified.
-- [x] Prepare the host-specific direct-USB decoder deployment and rollback plan in [13](13-host-10-decoder-deployment-plan.md). Remote execution remains blocked until SSH access to `.10` is authorized.
+- [ ] **Blocked:** verify MySQL authentication, schema version, and operator provisioning. A local `.env` now exists, but `DB_NAME` and `DB_USER` are still unset. The external MySQL host is `.50`; do not add another database service.
+- [ ] **Blocked:** verify decoder acquisition/output and physical USB release. `.10:1234` is `rtl_tcp`, not decoded ADS-B; no decoded feed was found on the probed ports. SSH to `richie@192.168.1.10` is still denied (`publickey,password`), and no active `.10` Remote-SSH session is visible in the current VS Code windows, so the host device/process state remains unverified.
+- [x] Prepare the host-specific direct-USB decoder deployment and rollback plan in [13](13-host-10-decoder-deployment-plan.md). Remote execution remains blocked until the VS Code Remote-SSH session completes and a usable remote shell is available.
+- [x] Add isolated `adsb_api` Compose service, backend image definition, and placeholder-only `.env.example`. The service uses the existing `my_rasp_network`, has loopback-only port 8010, no USB mapping, and no MySQL service.
+- [x] Build the `adsb_api` image successfully with Docker Desktop.
+- [ ] **Blocked:** start the API container until `DB_NAME` and `DB_USER` are provisioned in `.env` and database authentication/schema are verified.
 - [ ] Confirm exact session silence and observation retention values with the owner before deployment.
 - [ ] Confirm API bind host/port and production CORS origins before deployment.
 
@@ -33,7 +36,7 @@ Track against the approved specifications. The shared contracts in [12](12-share
 
 ## Backend and MySQL
 
-- [x] Implement the initial FastAPI routes, validation/errors, liveness/readiness, status, and required WebSocket envelope. Software-only slice; test execution is blocked because FastAPI/Pydantic are not installed.
+- [x] Implement the initial FastAPI routes, validation/errors, liveness/readiness, status, and required WebSocket envelope. Software-only slice.
 - [x] Add an operator-applied MySQL migration and repository boundary for receivers, aircraft, observations, flight sessions, enrichment cache and ingestion health. Migration has not been applied; database connection/schema compatibility remains blocked pending verified MySQL access and operator provisioning.
 - [ ] Implement event-time/ingestion-time handling, source-event deduplication, session closure and bounded retention.
 - [x] Run backend unit/API tests against the explicit empty test repository using `C:\Users\Richie\envs\radio`; 8 tests passed. MySQL integration remains blocked pending credentials and schema verification.

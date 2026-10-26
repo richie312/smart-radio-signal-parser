@@ -13,3 +13,24 @@ services:
     devices:
       - /dev/bus/usb:/dev/bus/usb
     command: rtl_tcp -a 0.0.0.0 -p 1234 -g 38 -f 819000 -s 2048000
+
+  adsb_api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: adsb-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      API_BIND_HOST: 0.0.0.0
+      API_PORT: 8000
+    ports:
+      - "127.0.0.1:8010:8000"
+    networks:
+      - my_rasp_network
+
+networks:
+  my_rasp_network:
+    external: true
+    name: my_rasp_network

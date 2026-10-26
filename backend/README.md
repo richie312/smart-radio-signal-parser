@@ -8,6 +8,8 @@ Runtime configuration follows `docs/adsb/12-shared-contracts-and-configuration.m
 
 Install `requirements.txt` in a project-specific environment, then run `uvicorn app.main:app` from this directory. Apply `migrations/001_initial.sql` separately with an operator-managed migration account after schema/network approval. Startup only checks the schema version and never performs DDL. This implementation does not connect to any currently running database during development.
 
+The root Compose file has an isolated `adsb_api` service. Copy the root `.env.example` to `.env`, then fill the provisioned MySQL schema/account and approved operating mode. Compose attaches the API to the existing external `my_rasp_network`, publishes the API only on `127.0.0.1:8010`, and does not map USB or create a MySQL service. Start it with `docker compose up --build -d adsb_api` only after database credentials/schema are ready. Do not select ADS-B mode until the `.10` decoder and USB ownership gates are verified. The API image has been built locally; container start still requires provisioned database settings.
+
 The WebSocket implementation is single-process, sends an initial `status.updated` contract envelope and provides no replay or aircraft event fanout until ingestion/event integration exists. Deploy one worker until shared fanout is implemented.
 
 ## Tests
