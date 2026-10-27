@@ -1,20 +1,19 @@
 # ADS-B Application: Docker Configuration and Security
 
-> **Finalized contract note:** `rtl_tcp` uses host networking; do not assume reachability via the MySQL network. Inspect networks, aliases, port bindings, host platform and actual MySQL configuration first. The only canonical environment variable table is in [12](12-shared-contracts-and-configuration.md).
+> **Current deployment:** Compose runs readsb with direct RTL-SDR USB ownership and the API on the external `my_rasp_network`. Follow the [Docker runbook](../docker-runbook.md) for configuration and host readsb cutover.
 
 ## Topology
 
-Compose retains the existing `rtl_tcp` service unchanged: it uses `network_mode: host`, maps `/dev/bus/usb`, and exposes receiver TCP 1234 through its process arguments. It now also defines an `adsb_api` backend service built from `backend/Dockerfile`. The API joins the pre-existing external `my_rasp_network` and binds host port 8010 to loopback only. It has no USB device mapping and does not start a decoder.
+Compose defines a `readsb` decoder service built from the root `Dockerfile`, which is based on a pinned upstream RTL-SDR-enabled image. The service maps `/dev/bus/usb` and joins `my_rasp_network`; the API reaches JSON position output at `readsb:30006`. The `adsb_api` service is built from `backend/Dockerfile`, joins the same external network, and binds host port 8010 to loopback only. The API has no USB device mapping.
 
-The verified Docker network is `my_rasp_network` (`172.19.0.0/16`); it currently contains `redis-server`. The MySQL host is external at `.50`; no MySQL service is defined here. Reuse that server and do not define another one. The API is connected to this bridge for database access. The host-network `rtl_tcp` service is not attached to this bridge, and its port 1234 is IQ data rather than decoded ADS-B. The `.10` direct-USB decoder remains a separate, unverified deployment gate.
+The Docker network is external and must already exist. MySQL remains external at `.50`; no MySQL service is defined here. Reuse that server and do not define another one. The API is connected to the bridge for database and readsb access. Do not run host-installed readsb, `rtl_tcp`, or another SDR owner while the Compose readsb service owns the device.
 
-The service requires a local, ignored `.env` file. Start-up must fail closed when required database or mode configuration is absent. The committed `.env.example` contains no credentials and leaves database name/user and ADS-B decoder fields unset. The API image has been built successfully; container start remains blocked pending provisioned database settings. The container is not running.
+The API requires a local, ignored `.env` file. Startup fails closed when required database or mode configuration is absent. `.env.example` contains no credentials and documents `tcp://readsb:30006` as the Compose endpoint. On an existing `.10` host installation, use the runbook's ownership transition before starting the containerized decoder.
 
 ## Remaining services and gates
 
-- `decoder`: selected ADS-B decoder if it can be deployed separately and the chosen receiver path supports it; current plan is direct USB ownership on `.10`.
 - `frontend`: static React bundle or development server as appropriate.
-- In `adsb` mode, stop the existing `rtl_tcp` service before the decoder acquires USB directly. In scanner mode, start only the configured SDR++ scanner receiver stack; identify which process actually holds USB during preflight.
+- In `adsb` mode, readsb acquires USB directly. In scanner mode, stop readsb before starting the configured SDR++ scanner receiver stack.
 - Existing external `mysql` remains externally managed.
 
 Do not add a decoder container until the direct-USB path and sequential stop/release/start/verify procedure have been tested on `.10`. The API service itself never claims the SDR.

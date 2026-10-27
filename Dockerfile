@@ -1,11 +1,5 @@
-FROM ubuntu:24.04
+# Pinned upstream readsb release image with RTL-SDR support.
+# Update this tag deliberately when upgrading the decoder.
+FROM ghcr.io/wiedehopf/readsb:sha-c01e01d
 
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update && \
-    apt-get install -y rtl-sdr && \
-    rm -rf /var/lib/apt/lists/*
-
-EXPOSE 1234
-
-ENTRYPOINT ["rtl_tcp"]
+EXPOSE 30006

@@ -1,18 +1,28 @@
 services:
-  rtl_tcp:
-    container_name: rtl_tcp
-
+  readsb:
+    container_name: readsb
     build:
       context: .
       dockerfile: Dockerfile
-
+    image: smart-radio-readsb:local
     restart: unless-stopped
-
-    network_mode: host
-
     devices:
       - /dev/bus/usb:/dev/bus/usb
-    command: rtl_tcp -a 0.0.0.0 -p 1234 -g 38 -f 819000 -s 2048000
+    command:
+      - --quiet
+      - --net
+      - --device
+      - "0"
+      - --device-type
+      - rtlsdr
+      - --gain
+      - auto
+      - --net-bind-address
+      - 0.0.0.0
+      - --net-json-port
+      - "30006"
+    networks:
+      - my_rasp_network
 
   adsb_api:
     build:
@@ -25,6 +35,8 @@ services:
     environment:
       API_BIND_HOST: 0.0.0.0
       API_PORT: 8000
+    depends_on:
+      - readsb
     ports:
       - "127.0.0.1:8010:8000"
     networks:

@@ -20,11 +20,12 @@ Batch 1 defines a desktop ADS-B reception and monitoring application. It receive
 
 ## Repository facts
 
-- `docker-compose.yaml` defines only `rtl_tcp`, using host networking, USB mapping, and TCP 1234. `Dockerfile` installs rtl-sdr and runs rtl_tcp.
+- `docker-compose.yaml` defines a `readsb` decoder container with direct USB mapping and an `adsb_api` service on the external `my_rasp_network`. The root `Dockerfile` wraps a pinned upstream readsb image with RTL-SDR support.
 - `rtl_tcp` is a receiver protocol carrying control/IQ samples, not decoded ADS-B output; see the [upstream rtl_tcp implementation](https://github.com/osmocom/rtl-sdr/blob/master/src/rtl_tcp.c).
 - `src/controller.py` and `src/recorder.py` default to TCP 4532 and send SDR++ Rigctl commands. `src/scanner.py` uses `RadioController`. Compose does not define an SDR++ Rigctl server.
-- No ADS-B decoder, backend, frontend, MySQL schema/configuration, or audio server exists in the repository.
-- User-provided constraint: a container named `mysql` exists on a Docker network. Actual network membership/aliases, port, MySQL version/config, database and user must be inspected.
+- The repository contains the ADS-B API, React frontend, MySQL migration, and Docker runbook. Audio remains unconfigured until a source is selected and verified.
+- The user confirmed a live end-to-end run on `.10` using host-installed readsb: API/database/receiver/decoder/ingestion reported online and observations were persisted. The new Compose-managed readsb cutover is documented but still needs to be applied on `.10`.
+- MySQL remains external at `.50`; `my_rasp_network` is external and must exist on the Docker host.
 
 ## Operating modes and safe switching
 
@@ -39,11 +40,11 @@ Preserve `src/controller.py`, `src/recorder.py`, and `src/scanner.py` behavior. 
 
 ## Confirmed, candidate, and unverified
 
-**Confirmed:** repository facts above and user-supplied deployment constraints. **Documented candidate:** `readsb` upstream documents direct RTL-SDR device operation and output interfaces ([upstream](https://github.com/wiedehopf/readsb)); this does not prove our image/build/hardware path. **Unverified:** readsb input from this exact rtl_tcp feed, any bridge, Airspy Server decoder interoperability, external providers, audio source and deployment topology.
+**Confirmed:** the current host-installed readsb path delivered live observations to the API and MySQL on `.10`, as reported by the user. The `rtl_tcp` feed remains raw IQ and is not used by readsb. The new pinned-image Compose service still requires a sequential USB ownership cutover and live verification. **Unverified:** Airspy Server interoperability, external providers, and audio source.
 
 ## Blocking decisions and acceptance
 
-ADS-B mode prefers direct USB ownership. Pin and test an actual decoder build, device permissions, 1090 MHz operation, output parsing and clean release before declaring the adapter implementable. A network bridge needs protocol/build documentation and a separate executable integration test. Also verify Docker/MySQL topology and provisioning owner; approve session-silence and retention values; select providers/audio source and terms. No arbitrary retention/session/provider values are assumed.
+ADS-B mode uses direct USB ownership. Keep decoder and scanner ownership mutually exclusive. See the [Docker runbook](../docker-runbook.md) for the Compose-managed readsb deployment and host transition procedure. Also approve session-silence and retention values; select providers/audio source and terms. No arbitrary retention/session/provider values are assumed.
 
 The specs must provide stable contracts, truthful states, separate simulated and hardware/provider acceptance, and keep core reception independent of optional integrations. Implementation starts only after user approval.
 
