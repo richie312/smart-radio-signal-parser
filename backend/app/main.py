@@ -7,16 +7,32 @@ from datetime import datetime, timedelta, timezone
 import json
 import math
 import uuid
+from pathlib import Path
 from typing import Any
+from urllib.request import Request as URLRequest, urlopen
 
 from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+import httpx
 
 from .contracts import ComponentStatus, Problem, normalize_icao, parse_time, utc_now
 from .repositories import EmptyRepository, MySQLRepository, Repository
 from .readsb import ReadsbIngestor
 from .settings import Settings
+
+
+AUDIO_CATALOG = json.loads((Path(__file__).resolve().parents[1] / "stations.json").read_text())
+
+
+def _radio_request(cfg: Settings, path: str, *, method: str = "GET", body: dict | None = None) -> dict:
+    payload = json.dumps(body).encode() if body is not None else None
+    req = URLRequest(cfg.radio_control_url.rstrip("/") + path, data=payload, method=method,
+                     headers={"Authorization": f"Bearer {cfg.radio_control_token}", "Content-Type": "application/json"})
+    with urlopen(req, timeout=3) as response:
+        result = json.loads(response.read().decode())
+        if not isinstance(result, dict): raise ValueError("invalid radio controller response")
+        return result
 
 
 def _status(state: str, *, error: str | None = None, details: dict | None = None,
@@ -133,13 +149,17 @@ def create_app(repository: Repository | None = None, settings: Settings | None =
     def status():
         cfg = app.state.settings
         db_ok, db_error = db_health()
+        radio = None
+        if cfg.operating_mode == "adsb" and cfg.radio_control_token:
+            try: radio = _radio_request(cfg, "/status")
+            except Exception: radio = None
+        audio_active = bool(radio and radio.get("mode") == "aviation_audio")
         scanner = cfg.operating_mode == "sdrpp_scanner"
         mode_unknown = cfg.operating_mode not in {"adsb", "sdrpp_scanner"}
-        base_unconfigured = _status("unconfigured", details={"reason": "not_configured"}).model_dump(mode="json")
-        if scanner or mode_unknown:
-            reason = "inactive_by_mode" if scanner else "configuration_required"
+        if scanner or mode_unknown or audio_active:
+            reason = "paused_for_aviation_audio" if audio_active else ("inactive_by_mode" if scanner else "configuration_required")
             rec = _status("unconfigured", error="invalid_configuration" if mode_unknown else None,
-                          details={"mode": cfg.operating_mode or "unknown", "owner": "sdrpp_scanner" if scanner else "none", "last_message_at": None, "reconnect_attempts": 0, "reason": reason}).model_dump(mode="json")
+                          details={"mode": "aviation_audio" if audio_active else (cfg.operating_mode or "unknown"), "owner": "radio_control" if audio_active else ("sdrpp_scanner" if scanner else "none"), "last_message_at": None, "reconnect_attempts": 0, "reason": reason}).model_dump(mode="json")
             dec = _status("unconfigured", details={"name": None, "version": None, "last_message_at": None, "reason": reason}).model_dump(mode="json")
             ing = _status("unconfigured", details={"accepted_count": 0, "rejected_count": 0, "last_persisted_at": None, "reason": reason}).model_dump(mode="json")
         else:
@@ -168,9 +188,13 @@ def create_app(repository: Repository | None = None, settings: Settings | None =
             ing = _status(ingestion_state, error=ingestion_error, last=last_persisted,
                           details={"accepted_count": accepted, "rejected_count": rejected, "last_persisted_at": last_persisted}).model_dump(mode="json")
         site = {"latitude": None, "longitude": None, "configured": False}
-        return {"operating_mode": cfg.operating_mode or "unknown", "api": _status("online").model_dump(mode="json"),
+        audio_state = "online" if audio_active else ("offline" if cfg.operating_mode == "adsb" and radio is None else "unconfigured")
+        audio_status = _status(audio_state, details={"mode": radio.get("mode") if radio else None,
+                                "station_id": radio.get("station_id") if radio else None,
+                                "reason": None if audio_active else ("inactive_by_mode" if cfg.operating_mode != "adsb" else "not_listening")}).model_dump(mode="json")
+        return {"operating_mode": "aviation_audio" if audio_active else (cfg.operating_mode or "unknown"), "api": _status("online").model_dump(mode="json"),
                 "database": _status("online" if db_ok else "offline", error=db_error).model_dump(mode="json"),
-                "receiver": rec, "decoder": dec, "ingestion": ing, "audio": base_unconfigured, "site": site}
+                "receiver": rec, "decoder": dec, "ingestion": ing, "audio": audio_status, "site": site}
 
     def check_query_window(request: Request, from_: str | None, to: str | None):
         try:
@@ -260,7 +284,53 @@ def create_app(repository: Repository | None = None, settings: Settings | None =
                 "flight_info": {"state": "unconfigured", "provider_id": None, "fetched_at": None, "expires_at": None, "match_confidence": None, "data": None, "attribution": None, "safe_error_code": None}}
 
     @app.get("/api/v1/audio/config")
-    def audio_config(): return {"state": "unconfigured", "stations": []}
+    def audio_config():
+        cfg = app.state.settings
+        try: radio = _radio_request(cfg, "/status") if cfg.operating_mode == "adsb" else None
+        except Exception: radio = None
+        active = radio and radio.get("mode") == "aviation_audio"
+        stations = [{**station, "state": "online" if active and radio.get("station_id") == station["station_id"] else "unconfigured",
+                     "playback_url": "/api/v1/audio/live" if active and radio.get("station_id") == station["station_id"] else None}
+                    for station in AUDIO_CATALOG["stations"]]
+        return {"airport": AUDIO_CATALOG["airport"], "source": AUDIO_CATALOG["source"],
+                "state": "online" if active else ("offline" if radio is None and cfg.operating_mode == "adsb" else "unconfigured"),
+                "mode": radio.get("mode") if radio else cfg.operating_mode, "station_id": radio.get("station_id") if radio else None,
+                "stations": stations}
+
+    @app.post("/api/v1/audio/start")
+    async def audio_start(request: Request):
+        cfg = app.state.settings
+        if cfg.operating_mode != "adsb": return problem(request, 409, "receiver_mode_unavailable", "Airband switching requires ADS-B receiver control mode")
+        try: body = await request.json()
+        except Exception: return problem(request, 422, "invalid_request", "A station_id is required")
+        station_id = body.get("station_id") if isinstance(body, dict) else None
+        station = next((x for x in AUDIO_CATALOG["stations"] if x["station_id"] == station_id), None)
+        if station is None: return problem(request, 422, "invalid_station", "Choose a station from the configured airport list")
+        try: result = _radio_request(cfg, "/mode/audio", method="POST", body={"station_id": station_id})
+        except Exception: return problem(request, 503, "receiver_switch_failed", "Could not switch the SDR to airband audio")
+        return {"mode": result["mode"], "station_id": result["station_id"], "playback_url": "/api/v1/audio/live"}
+
+    @app.post("/api/v1/audio/stop")
+    def audio_stop(request: Request):
+        cfg = app.state.settings
+        if cfg.operating_mode != "adsb": return problem(request, 409, "receiver_mode_unavailable", "ADS-B receiver control is not configured")
+        try: result = _radio_request(cfg, "/mode/adsb", method="POST", body={})
+        except Exception: return problem(request, 503, "receiver_switch_failed", "Could not restore the ADS-B decoder")
+        return {"mode": result["mode"], "station_id": None}
+
+    @app.get("/api/v1/audio/live")
+    async def audio_live(request: Request):
+        cfg = app.state.settings
+        try: radio = _radio_request(cfg, "/status")
+        except Exception: return problem(request, 503, "audio_unavailable", "Radio controller is unavailable")
+        if radio.get("mode") != "aviation_audio": return problem(request, 409, "audio_not_active", "Start a station before opening the audio stream")
+        async def chunks():
+            headers = {"Authorization": f"Bearer {cfg.radio_control_token}"}
+            async with httpx.AsyncClient(timeout=None) as client:
+                async with client.stream("GET", cfg.radio_control_url.rstrip("/") + "/audio/live", headers=headers) as response:
+                    if response.status_code != 200: return
+                    async for chunk in response.aiter_bytes(): yield chunk
+        return StreamingResponse(chunks(), media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
 
     @app.websocket("/api/v1/stream")
     async def stream(websocket: WebSocket):

@@ -1,14 +1,14 @@
 # ADS-B Application: Aviation Audio
 
-> **Finalized contract note:** Station configuration and frontend controls remain in scope, but live playback is unavailable until source/protocol/codec/delivery are verified. Raw IQ/`rtl_tcp` is not browser audio. Exclusive receiver modes in [00](00-project-overview.md) prohibit simultaneous ADS-B/scanner use of the dongle.
+> **Current implementation:** Station Monitor switches the Compose radio controller from readsb to a receive-only AM pipeline and proxies MP3 audio through the API. The user interface and service are implemented; the new hardware path still needs live acceptance on `.10`.
 
 ## Batch 1 capability
 
-Provide a configurable aviation frequency/station list and browser controls only after identifying a legitimate audio source. The UI may list station name, frequency, band/modulation if known, source status, and an explicit play/stop action. Configuration is local and editable through deployment configuration or a later approved settings interface.
+The initial station catalogue covers Rajiv Gandhi International Airport, Hyderabad (VOHS), from AAI's eAIP. The UI lists station, frequency, AM mode, and state with an explicit start/stop action.
 
 ## Source and delivery boundary
 
-The existing `rtl_tcp` endpoint supplies RTL-SDR sample/control traffic; it does not itself provide decoded voice audio or a browser-ready audio stream. ADS-B decoding at 1090 MHz is separate from aviation voice reception. The current SDR scripts expect SDR++ Rigctl on port 4532, but the current Compose file does not declare SDR++ Rigctl. Do not claim those scripts or rtl_tcp provide a working audio source.
+The radio controller owns the RTL-SDR. It runs readsb JSON at 1090 MHz in ADS-B mode, or rtl_fm AM tuned to the selected station and FFmpeg MP3 encoding in audio mode. The API proxies the stream; no decoder or audio port is published to the host. This does not integrate SDR++ Rigctl or change the existing scanner scripts.
 
 Before implementing playback, choose and verify one source:
 
@@ -20,7 +20,7 @@ The adapter should expose station metadata and a playback URL/session through a 
 
 ## Receiver limitations and arbitration
 
-The approved operating model is exclusive: this application will not run ADS-B reception and scanner/audio reception simultaneously on the same RTL-SDR, regardless of theoretical tuner bandwidth. Current `rtl_tcp` command sets an initial frequency and sample rate; it does not establish a simultaneous voice channel. Do not retune the ADS-B receiver for audio while claiming continuous ADS-B reception. Use a separately verified audio source or report playback unconfigured. A future multi-receiver design requires separate approval.
+The single-tuner operating model is exclusive. Starting audio stops readsb and pauses ADS-B ingestion; stopping audio restarts readsb. Simultaneous reception requires a second independent tuner or a separate authorized audio source.
 
 ## Deferred
 

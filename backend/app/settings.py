@@ -14,6 +14,8 @@ class Settings:
     receiver_id: str = ""
     decoder_endpoint: str = ""
     decoder_version: str | None = None
+    radio_control_url: str = "http://radio-control:8090"
+    radio_control_token: str = field(default="", repr=False)
 
     @classmethod
     def from_env(cls):
@@ -33,6 +35,7 @@ class Settings:
         if mode == "adsb":
             for key in ("RECEIVER_ID", "RECEIVER_MODE", "DECODER_NAME", "DECODER_INPUT_MODE", "DECODER_OUTPUT_MODE", "DECODER_ENDPOINT"):
                 if not os.getenv(key): errors.append(f"{key} is required in adsb mode")
+            if not os.getenv("RADIO_CONTROL_TOKEN"): errors.append("RADIO_CONTROL_TOKEN is required in adsb mode")
             if os.getenv("RECEIVER_MODE") != "rtlsdr_usb": errors.append("RECEIVER_MODE must be rtlsdr_usb for the configured readsb adapter")
             if os.getenv("DECODER_NAME") != "readsb": errors.append("DECODER_NAME must be readsb for the configured adapter")
             if os.getenv("DECODER_INPUT_MODE") != "direct_usb": errors.append("DECODER_INPUT_MODE must be direct_usb for readsb")
@@ -52,4 +55,5 @@ class Settings:
             for key in ("API_BIND_HOST", "API_PORT", "CORS_ORIGINS", "FLIGHT_SESSION_SILENCE_SECONDS", "AIRCRAFT_STALE_AFTER_SECONDS", "OBSERVATION_RETENTION_DAYS"):
                 if not os.getenv(key): errors.append(f"{key} is required in production")
         return cls(env or "", os.getenv("LOG_LEVEL", "INFO"), mode or "", mysql, tuple(errors),
-                   os.getenv("RECEIVER_ID", ""), endpoint, os.getenv("DECODER_VERSION") or None)
+                   os.getenv("RECEIVER_ID", ""), endpoint, os.getenv("DECODER_VERSION") or None,
+                   os.getenv("RADIO_CONTROL_URL", "http://radio-control:8090"), os.getenv("RADIO_CONTROL_TOKEN", ""))

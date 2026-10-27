@@ -1,6 +1,6 @@
 # ADS-B Application: Receiver and Decoder Specification
 
-> **Finalized contract note:** Use the mutually exclusive operating modes and USB switch procedure in [00](00-project-overview.md). The normalized envelope v1 and status fields in [12](12-shared-contracts-and-configuration.md) supersede earlier sample shapes below. Direct USB is the preferred candidate, but the adapter is not implementable until the pinned decoder build passes real hardware integration; no `readsb` compatibility with this repository's `rtl_tcp` feed is assumed.
+> **Implementation update (October 2026):** The readsb TCP JSON adapter has been implemented and the user confirmed live data persisted on `.10`. Compose now has a single-owner radio controller that switches between readsb and receive-only AM audio; see the [Docker runbook](../docker-runbook.md). The design notes below describe the original planning state and should not override the current Compose configuration.
 
 ## Current behavior and limits
 

@@ -118,7 +118,7 @@ function ReceiverCard({ status, loading, error, refresh }: { status: SystemStatu
     {loading && !status ? <LoadingLine label="Connecting to receiver status…" /> : status ? <>
       <div className="receiver-status-row"><StatePill state={reception.state} /><span className="receiver-status-label">{reception.label}</span></div>
       <div className="receiver-grid">
-        <div className="receiver-metric"><span className="metric-label">OPERATING MODE</span><strong>{status.operating_mode === 'adsb' ? 'ADS-B' : 'SDR++ Scanner'}</strong><small>{status.operating_mode === 'adsb' ? 'Decoder owns RTL-SDR' : 'ADS-B reception inactive'}</small></div>
+        <div className="receiver-metric"><span className="metric-label">OPERATING MODE</span><strong>{status.operating_mode === 'adsb' ? 'ADS-B' : status.operating_mode === 'aviation_audio' ? 'Airband audio' : 'SDR++ Scanner'}</strong><small>{status.operating_mode === 'adsb' ? 'Decoder owns RTL-SDR' : 'ADS-B reception inactive'}</small></div>
         <div className="receiver-metric"><span className="metric-label">DEVICE OWNER</span><strong>{owner === 'adsb_decoder' ? 'ADS-B decoder' : owner === 'sdrpp_scanner' ? 'SDR++ scanner' : 'None reported'}</strong><small>Exclusive USB access</small></div>
         <div className="receiver-metric"><span className="metric-label">DECODER</span><strong>{typeof decoderName === 'string' ? decoderName : 'Not configured'}</strong><small><StatePill state={status.decoder.state} /></small></div>
         <div className="receiver-metric"><span className="metric-label">LAST MESSAGE</span><strong>{relativeAge(reception.lastMessage)}</strong><small>{formatTime(reception.lastMessage)}</small></div>
@@ -184,7 +184,7 @@ function AircraftTable({ rows, loading, error, refresh, selected, onSelect, stat
           </tr>;
         })}</tbody></table></div>
       {selected && <AircraftDetail aircraft={selected} onClose={() => onSelect(null)} />}
-    </> : <Empty>{rows?.length === 0 && !hasReception ? `No aircraft currently listed. ${status?.operating_mode === 'sdrpp_scanner' ? 'The scanner owns the receiver, so ADS-B reception is inactive.' : 'Check receiver health and last message time above.'}` : 'No aircraft match these filters.'}</Empty>}
+    </> : <Empty>{rows?.length === 0 && !hasReception ? `No aircraft currently listed. ${status?.operating_mode === 'sdrpp_scanner' ? 'The scanner owns the receiver, so ADS-B reception is inactive.' : status?.operating_mode === 'aviation_audio' ? 'Airband audio owns the receiver, so ADS-B updates are paused.' : 'Check receiver health and last message time above.'}` : 'No aircraft match these filters.'}</Empty>}
     <ErrorNotice error={moreError} onRetry={loadMore} compact />
     <div className="table-footer"><span>Showing {filtered.length} of {rows?.length ?? 0} loaded aircraft</span><span className="footer-actions">{nextCursor && <button className="text-button" onClick={loadMore} disabled={loadingMore}>{loadingMore ? 'Loading…' : 'Load more'}</button>}<button className="text-button" onClick={refresh}>Refresh <span aria-hidden="true">↻</span></button></span></div>
   </section>;
@@ -210,24 +210,49 @@ function AircraftDetail({ aircraft, onClose }: { aircraft: AircraftSummary; onCl
 function AudioPanel({ audio, loading, error, refresh }: { audio: AudioConfig | null; loading: boolean; error: ApiError | null; refresh: () => void }) {
   const [selected, setSelected] = useState<string>('');
   const [playing, setPlaying] = useState(false);
+  const [switching, setSwitching] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(0.75);
   const audioRef = useRef<HTMLAudioElement>(null);
   const station = audio?.stations.find((item) => item.station_id === selected);
-  const playbackUrl = safeMediaUrl(station?.playback_url);
-  const canPlay = station?.state === 'online' && playbackUrl !== null;
+  const audioMode = audio?.mode === 'aviation_audio';
+  const activeStation = audio?.station_id === selected;
+  const stopCurrent = audioMode && (!selected || activeStation);
   useEffect(() => { if (audioRef.current) { audioRef.current.volume = volume; audioRef.current.muted = muted; } }, [volume, muted]);
   useEffect(() => { setPlaying(false); if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ''; } }, [selected]);
-  const play = async () => { if (!canPlay || !audioRef.current || !playbackUrl) return; audioRef.current.src = playbackUrl; try { await audioRef.current.play(); setPlaying(true); } catch { setPlaying(false); } };
+  const play = async () => {
+    if (!selected || switching || !audioRef.current) return;
+    setSwitching(true); setActionError(null);
+    try {
+      const result = await api.startAudio(selected);
+      audioRef.current.src = result.playback_url;
+      await audioRef.current.play();
+      setPlaying(true);
+      refresh();
+    } catch (e) { setPlaying(false); setActionError(e instanceof Error ? e.message : 'Could not start airband audio.'); }
+    finally { setSwitching(false); }
+  };
+  const stop = async () => {
+    audioRef.current?.pause();
+    if (audioRef.current) audioRef.current.src = '';
+    setPlaying(false); setSwitching(true); setActionError(null);
+    try { await api.stopAudio(); refresh(); }
+    catch (e) { setActionError(e instanceof Error ? e.message : 'Could not restore ADS-B reception.'); }
+    finally { setSwitching(false); }
+  };
   return <section className="panel audio-panel" aria-labelledby="audio-heading">
     <div className="panel-heading"><div><span className="eyebrow">AVIATION AUDIO</span><h2 id="audio-heading">Station monitor</h2></div><span className="audio-icon" aria-hidden="true">♫</span></div>
     <ErrorNotice error={error} onRetry={refresh} compact />
     {loading && !audio ? <LoadingLine label="Checking audio configuration…" /> : audio?.stations.length ? <>
-      <p className="audio-intro">Playback is available only for a configured, verified source.</p>
+      <p className="audio-intro">{audio?.airport}. Starting a station pauses ADS-B on this single tuner.</p>
       <label className="station-select">Station<select value={selected} onChange={(event) => setSelected(event.target.value)}><option value="">Choose station</option>{audio.stations.map((item) => <option key={item.station_id} value={item.station_id}>{item.name}{item.frequency_mhz ? ` · ${item.frequency_mhz} MHz` : ''}</option>)}</select></label>
       {station && <div className="station-meta"><StatePill state={station.state} /><span>{station.band ?? 'Band unspecified'} · {station.modulation ?? 'Modulation unspecified'}</span></div>}
-      <div className="audio-controls"><button className="play-button" disabled={!canPlay} onClick={playing ? () => { audioRef.current?.pause(); setPlaying(false); } : play} aria-label={playing ? 'Stop station audio' : 'Play station audio'}>{playing ? 'Ⅱ' : '▶'}</button><label className="volume-label"><span>Volume</span><input type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => setVolume(Number(event.target.value))} aria-label="Audio volume" /></label><button className="mute-button" onClick={() => setMuted((value) => !value)} aria-pressed={muted}>{muted ? 'Unmute' : 'Mute'}</button></div>
-      {!canPlay && <p className="audio-unavailable">{station ? 'This station has no verified playback stream.' : 'Select an online station with a verified stream to enable playback.'}</p>}
+      <div className="audio-controls"><button className="listen-button" disabled={switching || (!audioMode && !selected)} onClick={stopCurrent ? stop : play}>{switching ? 'Switching receiver…' : stopCurrent ? 'Stop listening · resume ADS-B' : audioMode ? 'Switch station' : 'Start listening · pause ADS-B'}</button><label className="volume-label"><span>Volume</span><input type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => setVolume(Number(event.target.value))} aria-label="Audio volume" /></label><button className="mute-button" onClick={() => setMuted((value) => !value)} aria-pressed={muted}>{muted ? 'Unmute' : 'Mute'}</button></div>
+      {!selected && !audioMode && <p className="audio-unavailable">Select a station to enable listening. ADS-B reception resumes when you stop audio.</p>}
+      {audioMode && !playing && <p className="audio-unavailable">Listening mode is active. Select Play to open the live audio in this browser.</p>}
+      {actionError && <p className="audio-unavailable">{actionError}</p>}
+      {audio?.source && <p className="audio-unavailable">Frequency reference: <a href={audio.source} target="_blank" rel="noreferrer">AIP India</a></p>}
       <audio ref={audioRef} onEnded={() => setPlaying(false)} onError={() => setPlaying(false)} />
     </> : <div className="audio-empty"><div className="audio-wave" aria-hidden="true"><i /><i /><i /><i /><i /></div><StatePill state={audio?.state ?? 'unconfigured'} /><h3>Audio source not configured</h3><p>Live playback stays unavailable until a legitimate source and browser delivery path are verified.</p><span className="audio-frequency">NO VERIFIED STREAM</span></div>}
   </section>;

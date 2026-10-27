@@ -1,6 +1,6 @@
 # ADS-B backend (software-only initial implementation)
 
-FastAPI contract implementation for shared API v1. Decoder/receiver, enrichment providers, and audio are intentionally unconfigured. No aircraft fixtures are bundled and an empty repository is reported as unavailable data, never as live reception.
+FastAPI implementation for shared API v1. In ADS-B mode the API consumes readsb positions through the internal radio controller; the Station Monitor can request receive-only Hyderabad airband audio, which pauses readsb until listening stops. Enrichment providers remain unconfigured. No aircraft fixtures are bundled and an empty repository is reported as unavailable data, never as live reception.
 
 ## Configuration
 

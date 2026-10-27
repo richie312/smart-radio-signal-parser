@@ -1,26 +1,16 @@
 services:
-  readsb:
-    container_name: readsb
+  radio_control:
+    container_name: radio-control
     build:
       context: .
       dockerfile: Dockerfile
-    image: smart-radio-readsb:local
+    image: smart-radio-radio-control:local
     restart: unless-stopped
     devices:
       - /dev/bus/usb:/dev/bus/usb
-    command:
-      - --quiet
-      - --net
-      - --device
-      - "0"
-      - --device-type
-      - rtlsdr
-      - --gain
-      - auto
-      - --net-bind-address
-      - 0.0.0.0
-      - --net-json-port
-      - "30006"
+    environment:
+      RADIO_CONTROL_TOKEN: ${RADIO_CONTROL_TOKEN:?Set RADIO_CONTROL_TOKEN in .env}
+      OPERATING_MODE: ${OPERATING_MODE:-adsb}
     networks:
       - my_rasp_network
 
@@ -35,8 +25,9 @@ services:
     environment:
       API_BIND_HOST: 0.0.0.0
       API_PORT: 8000
+      RADIO_CONTROL_URL: http://radio-control:8090
     depends_on:
-      - readsb
+      - radio_control
     ports:
       - "127.0.0.1:8010:8000"
     networks:

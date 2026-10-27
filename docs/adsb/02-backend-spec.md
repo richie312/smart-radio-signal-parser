@@ -40,7 +40,10 @@ Use JSON, UTC RFC 3339 timestamps, stable field names, pagination limits, and do
 | `GET /api/v1/analytics/summary` | Counts/rates and coverage for a validated time window. |
 | `GET /api/v1/analytics/timeseries` | Bucketed counts/rates with maximum window and bucket count. |
 | `GET /api/v1/enrichment/{icao24}` | Cached enrichment/status; provider calls should not block general aircraft queries. |
-| `GET /api/v1/audio/config` | Available configured stations and playback capability/status, excluding secrets. |
+| `GET /api/v1/audio/config` | Hyderabad station catalogue, active mode, selected station, and a same-origin stream URL only for the active station. |
+| `POST /api/v1/audio/start` | Validates a catalogue station ID, stops readsb, and tunes the single receiver to receive-only AM audio. |
+| `POST /api/v1/audio/stop` | Stops the audio pipeline and restarts readsb. |
+| `GET /api/v1/audio/live` | Privately proxies the active MP3 stream; available only while audio mode is active. |
 
 Audio control endpoints, if needed, are read-only selection preferences and must not retune the ADS-B receiver unless a separately approved resource-arbitration design exists. Exact route schemas are implementation contract work to finalize before coding.
 

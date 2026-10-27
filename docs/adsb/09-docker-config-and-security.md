@@ -1,39 +1,24 @@
 # ADS-B Application: Docker Configuration and Security
 
-> **Current deployment:** Compose runs readsb with direct RTL-SDR USB ownership and the API on the external `my_rasp_network`. Follow the [Docker runbook](../docker-runbook.md) for configuration and host readsb cutover.
-
 ## Topology
 
-Compose defines a `readsb` decoder service built from the root `Dockerfile`, which is based on a pinned upstream RTL-SDR-enabled image. The service maps `/dev/bus/usb` and joins `my_rasp_network`; the API reaches JSON position output at `readsb:30006`. The `adsb_api` service is built from `backend/Dockerfile`, joins the same external network, and binds host port 8010 to loopback only. The API has no USB device mapping.
+Compose defines a `radio_control` service built from the root `Dockerfile`, based on a pinned upstream RTL-SDR-enabled readsb image with rtl_fm and FFmpeg added. It maps `/dev/bus/usb` and owns the tuner. It runs readsb for ADS-B or an AM audio pipeline for one selected station, never both. The API reaches JSON output at `radio-control:30006` and authenticated control/audio endpoints at `radio-control:8090`.
 
-The Docker network is external and must already exist. MySQL remains external at `.50`; no MySQL service is defined here. Reuse that server and do not define another one. The API is connected to the bridge for database and readsb access. Do not run host-installed readsb, `rtl_tcp`, or another SDR owner while the Compose readsb service owns the device.
+`adsb_api` is built from `backend/Dockerfile`, joins the external `my_rasp_network`, and binds host port 8010 to loopback only. The API has no USB device mapping and no Docker socket. It proxies the private MP3 stream; neither decoder nor audio ports are published to the host. MySQL remains external at `.50`.
 
-The API requires a local, ignored `.env` file. Startup fails closed when required database or mode configuration is absent. `.env.example` contains no credentials and documents `tcp://readsb:30006` as the Compose endpoint. On an existing `.10` host installation, use the runbook's ownership transition before starting the containerized decoder.
+The services require a local, ignored `.env`. `RADIO_CONTROL_TOKEN` must be a locally generated secret shared by the API and radio controller. The API validates station IDs against the repository's Hyderabad VOHS station list; it does not accept arbitrary frequencies or remote media URLs.
 
-## Remaining services and gates
+## Receiver arbitration
 
-- `frontend`: static React bundle or development server as appropriate.
-- In `adsb` mode, readsb acquires USB directly. In scanner mode, stop readsb before starting the configured SDR++ scanner receiver stack.
-- Existing external `mysql` remains externally managed.
+On one tuner, ADS-B and airband are exclusive. Starting audio stops readsb and pauses aircraft observations; stopping audio restarts readsb. The existing host-installed readsb service must be stopped and disabled before Compose takes USB ownership. Stop Compose `radio_control` before restoring that host service or starting another SDR/scanner owner. The current design needs a second independent receiver or separate authorized audio source for simultaneous ADS-B and voice.
 
-Do not add a decoder container until the direct-USB path and sequential stop/release/start/verify procedure have been tested on `.10`. The API service itself never claims the SDR.
+## Health and security
 
-## Environment configuration
+- Compose service ordering is not readiness; the API retries the decoder connection and reports receiver state separately from database readiness.
+- Keep radio control endpoints on the internal Docker network; do not publish them to the LAN.
+- Use the shared token for all mode-control and audio-stream requests. Do not log or expose it.
+- Restrict API exposure to the intended local workstation/tunnel. Do not bind it publicly without authentication and transport-security review.
+- Map only the RTL-SDR USB bus into the single device-owning radio controller. Keep MySQL migration credentials separate from the API runtime account.
+- The audio pipeline is receive-only and limited to the station IDs in the local catalogue. Verify applicable local rules before sharing or rebroadcasting audio.
 
-Use only the canonical names in [12](12-shared-contracts-and-configuration.md). Do not maintain an alternate list or add guessed ports/provider-specific variables. Do not commit real credentials or operational `.env` files. Copy `.env.example` to `.env` locally and fill only the provisioned MySQL schema/account values; `.env` is ignored by Git. Prefer Docker secrets or operator-managed secret mounts for production. Avoid logging complete connection strings.
-
-## Health, startup, and recovery
-
-Backend liveness and readiness are distinct. Liveness checks process only. Readiness requires API startup, database connectivity, and compatible schema; receiver/decoder loss degrades reception but does not make an otherwise healthy API unready. Provider/audio failures do not affect readiness. Compose dependency order is not proof of readiness; backend must report connection state. Graceful shutdown closes streams and DB connections.
-
-## Network and least privilege
-
-- Use a dedicated DB/schema and app account with minimum table privileges; keep migration credentials separate where possible.
-- Restrict backend/API exposure to intended LAN/origin; do not bind publicly without authentication and transport-security review.
-- Restrict CORS to configured frontend origins.
-- Avoid privileged containers; map only required USB device access to the receiver/decoder owner.
-- Do not expose decoder output ports to host unless needed; prefer internal network.
-- Validate any configurable external URLs to prevent SSRF.
-- Redact secrets and avoid credentials in health endpoint payloads.
-
-See [architecture](01-system-architecture.md) and [backend](02-backend-spec.md).
+See the [Docker runbook](../docker-runbook.md) for setup, mode switching, and rollback.

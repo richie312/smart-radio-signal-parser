@@ -1,5 +1,5 @@
 export type ComponentState = 'online' | 'degraded' | 'offline' | 'unconfigured' | 'error';
-export type OperatingMode = 'adsb' | 'sdrpp_scanner';
+export type OperatingMode = 'adsb' | 'sdrpp_scanner' | 'aviation_audio';
 
 export interface ComponentStatus {
   state: ComponentState;
@@ -130,5 +130,9 @@ export interface AudioStation {
 
 export interface AudioConfig {
   state: ComponentState;
+  airport: string;
+  source: string;
+  mode: string | null;
+  station_id: string | null;
   stations: AudioStation[];
 }

@@ -20,11 +20,11 @@ Batch 1 defines a desktop ADS-B reception and monitoring application. It receive
 
 ## Repository facts
 
-- `docker-compose.yaml` defines a `readsb` decoder container with direct USB mapping and an `adsb_api` service on the external `my_rasp_network`. The root `Dockerfile` wraps a pinned upstream readsb image with RTL-SDR support.
+- `docker-compose.yaml` defines a single-owner `radio_control` service with USB mapping and an `adsb_api` service on the external `my_rasp_network`. The root `Dockerfile` wraps a pinned upstream readsb image, adding rtl_fm and FFmpeg for receive-only airband audio.
 - `rtl_tcp` is a receiver protocol carrying control/IQ samples, not decoded ADS-B output; see the [upstream rtl_tcp implementation](https://github.com/osmocom/rtl-sdr/blob/master/src/rtl_tcp.c).
 - `src/controller.py` and `src/recorder.py` default to TCP 4532 and send SDR++ Rigctl commands. `src/scanner.py` uses `RadioController`. Compose does not define an SDR++ Rigctl server.
-- The repository contains the ADS-B API, React frontend, MySQL migration, and Docker runbook. Audio remains unconfigured until a source is selected and verified.
-- The user confirmed a live end-to-end run on `.10` using host-installed readsb: API/database/receiver/decoder/ingestion reported online and observations were persisted. The new Compose-managed readsb cutover is documented but still needs to be applied on `.10`.
+- The repository contains the ADS-B API, React frontend, MySQL migration, and Docker runbook. The Station Monitor switches the single tuner between ADS-B and Hyderabad airband audio.
+- The user confirmed a live end-to-end run on `.10` using host-installed readsb: API/database/receiver/decoder/ingestion reported online and observations were persisted. The new Compose-managed mode switch still needs to be applied and verified on `.10`.
 - MySQL remains external at `.50`; `my_rasp_network` is external and must exist on the Docker host.
 
 ## Operating modes and safe switching
@@ -40,11 +40,11 @@ Preserve `src/controller.py`, `src/recorder.py`, and `src/scanner.py` behavior. 
 
 ## Confirmed, candidate, and unverified
 
-**Confirmed:** the current host-installed readsb path delivered live observations to the API and MySQL on `.10`, as reported by the user. The `rtl_tcp` feed remains raw IQ and is not used by readsb. The new pinned-image Compose service still requires a sequential USB ownership cutover and live verification. **Unverified:** Airspy Server interoperability, external providers, and audio source.
+**Confirmed:** the current host-installed readsb path delivered live observations to the API and MySQL on `.10`, as reported by the user. The AAI eAIP supplies the VOHS frequency presets. The new receive-only AM pipeline and Compose ownership cutover need live verification on `.10`. **Unverified:** Airspy Server interoperability and external providers.
 
 ## Blocking decisions and acceptance
 
-ADS-B mode uses direct USB ownership. Keep decoder and scanner ownership mutually exclusive. See the [Docker runbook](../docker-runbook.md) for the Compose-managed readsb deployment and host transition procedure. Also approve session-silence and retention values; select providers/audio source and terms. No arbitrary retention/session/provider values are assumed.
+ADS-B and airband audio modes use exclusive USB ownership. See the [Docker runbook](../docker-runbook.md) for the Compose mode switch and host transition procedure. Also approve session-silence and retention values and select enrichment providers. No arbitrary retention/session/provider values are assumed.
 
 The specs must provide stable contracts, truthful states, separate simulated and hardware/provider acceptance, and keep core reception independent of optional integrations. Implementation starts only after user approval.
 

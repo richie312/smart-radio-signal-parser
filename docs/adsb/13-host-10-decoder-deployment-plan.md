@@ -1,6 +1,6 @@
 # ADS-B decoder deployment plan for host .10
 
-This plan records the initial host-installed deployment work. The user subsequently confirmed live observations were reaching the API and database on `.10` with host-installed readsb. The repository now includes a pinned Compose readsb image; the migration to it is described in the [Docker runbook](../docker-runbook.md) and has not yet been applied.
+This plan records the initial host-installed decoder work. The user subsequently confirmed live observations were reaching the API and database on `.10` with host-installed readsb. The repository now includes a radio controller that can switch its single USB tuner between readsb and receive-only airband audio. The migration to that controller is described in the [Docker runbook](../docker-runbook.md) and has not yet been applied.
 
 ## Verified facts
 

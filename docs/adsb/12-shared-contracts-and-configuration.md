@@ -1,20 +1,20 @@
 # ADS-B Batch 1: Shared Contracts and Canonical Configuration
 
-This document is authoritative where an earlier illustrative schema, route, state, or variable list conflicts. Implementation must retain these field meanings. Optional provider/audio fields remain unavailable until configured.
+This document is authoritative where an earlier illustrative schema, route, state, or variable list conflicts. Implementation must retain these field meanings. Enrichment fields remain unavailable until configured. VOHS airband audio is implemented as an exclusive receiver mode and requires live hardware verification on `.10`.
 
 ## Operating mode and status
 
-`OPERATING_MODE` is exactly `adsb` or `sdrpp_scanner`. One owner only. Switching requires stop active process, confirm USB release, start target, verify ownership/output, then report status. Never auto-take over. ADS-B mode owns the RTL-SDR for decoder use; scanner mode reserves it for existing SDR++ workflow and ADS-B ingestion is inactive by mode. Preserve existing Python scripts.
+Startup `OPERATING_MODE` is exactly `adsb` or `sdrpp_scanner`. Runtime API status may report `aviation_audio` while the radio controller switches the same USB tuner from readsb to receive-only AM. One owner only. Switching stops the current child process before starting the next. Scanner mode reserves the device for the existing scanner workflow; this Compose controller does not switch into SDR++ scanner mode. Preserve existing Python scripts.
 
 Component states are `online`, `degraded`, `offline`, `unconfigured`, or `error`. `last_success_at`, `last_message_at`, and error fields may be null; do not use zero timestamps/counters to mean unknown. Scanner mode reports ADS-B receiver/decoder as `unconfigured` with reason `inactive_by_mode`. API readiness requires API startup, DB connectivity and compatible schema. Receiver/decoder loss degrades reception but does not make API unready. DB/schema failure makes readiness false; optional provider/audio failure does not.
 
 State meanings: `online` = configured component operating and recent expected work succeeds; `degraded` = component is reachable but stale/no data or partial work failure; `offline` = configured component cannot currently be reached or has stopped; `unconfigured` = capability is not selected/provisioned (including ADS-B disabled by scanner mode); `error` = invalid configuration, ownership conflict, incompatible protocol/schema, or non-recoverable fault. Transition timestamps and safe error codes are retained.
 
-Public status base shape is `{state,updated_at,last_success_at|null,error_code|null,details}`. `receiver.details` includes `mode`, `owner` (`adsb_decoder|sdrpp_scanner|none`), `last_message_at|null`, and `reconnect_attempts`; `decoder.details` includes `name|null`, `version|null`, and `last_message_at|null`; `ingestion.details` includes accepted/rejected counts and last persisted time. In scanner mode, `owner=sdrpp_scanner`, ADS-B receiver/decoder are `unconfigured`, and ingestion is `unconfigured`/inactive by mode. In ADS-B mode before ownership/decoder startup, report `connecting` only internally and public `degraded` or `error`; do not add undocumented public states.
+Public status base shape is `{state,updated_at,last_success_at|null,error_code|null,details}`. `receiver.details` includes `mode`, `owner` (`adsb_decoder|radio_control|sdrpp_scanner|none`), `last_message_at|null`, and `reconnect_attempts`; `decoder.details` includes `name|null`, `version|null`, and `last_message_at|null`; `ingestion.details` includes accepted/rejected counts and last persisted time. In scanner mode, `owner=sdrpp_scanner`, ADS-B receiver/decoder are `unconfigured`, and ingestion is `unconfigured`/inactive by mode. In `aviation_audio` mode, the receiver/decoder/ingestion are unconfigured with reason `paused_for_aviation_audio`, and audio is online while the controller is streaming.
 
 ## Decoder path and acceptance evidence
 
-`rtl_tcp` on TCP 1234 (host network in current Compose) supplies receiver control/IQ data, not decoded ADS-B. The selected software candidate is a pinned `readsb` build with RTL-SDR support and direct exclusive USB ownership; its JSON position output is `readsb_json` and represents aggregated aircraft updates (`record_kind=aircraft_update`), not every decoded RF frame. Exact build, listener configuration, line schema, and hardware compatibility remain untested. Do not claim the direct USB path is operational until a real integration test proves device acquisition, correct ADS-B tuning, decoded output, and USB release. No `readsb`-to-current-`rtl_tcp` bridge is assumed. Any proposed bridge needs authoritative protocol/build evidence and its own executable integration test before adapter implementation. Airspy SPY Server/client/version and IQ mode require separate compatibility validation; [Airspy docs](https://airspy.com/quickstart/) alone do not prove chosen decoder interoperability.
+The host `.10` readsb JSON path has been exercised end to end and the user confirmed observations persisted. The Compose controller owns USB, runs pinned readsb JSON output as `readsb_json` aggregated aircraft updates (`record_kind=aircraft_update`), and supports an exclusive receive-only AM mode. This Compose mode switch still needs live acceptance on `.10`. The old `rtl_tcp` endpoint on TCP 1234 carries raw IQ, not decoded ADS-B; the app does not use it. Airspy SPY Server/client/version and IQ mode require separate compatibility validation.
 
 ## Normalized decoder envelope v1
 
@@ -71,7 +71,10 @@ All times are RFC3339 UTC, all JSON. Cursor pagination uses `limit` (default 50,
 | `GET /api/v1/analytics/summary` | `from,to,receiver_id?` | counts, rates, valid-position count, distance summary, available signal metric list, status/availability. |
 | `GET /api/v1/analytics/timeseries` | `from,to,bucket_seconds,receiver_id?` | `{window:{from,to},bucket_seconds,receiver_id|null,data_available,buckets:[{bucket_start,decoded_frame_count|null,aircraft_update_count,distinct_aircraft_count}]}`; bucket starts are UTC, intervals are half-open, and frame counts are null when unavailable. |
 | `GET /api/v1/enrichment/{icao24}` | none | image and flight `EnrichmentResult`; provider failures represented as states. |
-| `GET /api/v1/audio/config` | none | `{state,stations:[{station_id,name,frequency_mhz|null,band|null,modulation|null,state,playback_url|null}]}`; playback URL exists only for a verified configured source. |
+| `GET /api/v1/audio/config` | none | `{state,airport,source,mode,station_id,stations:[{station_id,name,frequency_mhz|null,band|null,modulation|null,state,playback_url|null}]}`; the API returns the private stream URL only for the active station. |
+| `POST /api/v1/audio/start` | `{station_id}` | Selects only a station ID in the fixed catalogue, stops readsb, and starts receive-only AM audio. Requires ADS-B radio control mode. |
+| `POST /api/v1/audio/stop` | `{}` | Stops audio and restarts readsb. Requires ADS-B radio control mode. |
+| `GET /api/v1/audio/live` | none | Private MP3 proxy available only while an audio station is active. |
 
 Filter semantics: `icao24` is case-insensitive input normalized to uppercase; callsign filtering trims padding and compares case-insensitively; altitude bounds are inclusive; `seen_since` filters `last_seen_at`. Observation `from/to` filters `event_time` (records with null event time are excluded from that bounded query); session `from/to` filters `started_at`; all intervals are half-open. Reject `from >= to`, negative bucket sizes, unknown filter names, nonfinite altitude, and `limit` outside 1–200 with `Problem` code `invalid_query`.
 
@@ -114,7 +117,9 @@ This is the sole canonical configuration table. `deployment-required` means no d
 | `DECODER_NAME` | Required in ADS-B mode | Approved pinned decoder; `readsb` candidate | No | ADS-B startup fails until selected. |
 | `DECODER_INPUT_MODE` | Required in ADS-B mode | `direct_usb` candidate; bridge only after verified | No | Fail if unsupported/unverified. |
 | `DECODER_OUTPUT_MODE` | Required in ADS-B mode | `readsb_json` candidate; exact listener/build configuration to verify | No | Fail unless compatible parser chosen/tested. |
-| `DECODER_ENDPOINT` | Required for network output only | Verified endpoint; none otherwise | No | Fail when selected output requires it. |
+| `DECODER_ENDPOINT` | Required for network output only | `tcp://radio-control:30006` in Compose ADS-B mode | No | Fail when selected output requires it. |
+| `RADIO_CONTROL_URL` | Internal radio control service | `http://radio-control:8090` | No | Internal Compose address; not published to the host. |
+| `RADIO_CONTROL_TOKEN` | Authenticates API-to-radio-control requests | Locally generated shared secret | Yes | Required in ADS-B mode; never returned by the API. |
 | `FLIGHT_SESSION_SILENCE_SECONDS` | Required session closure policy | Positive configured value; none chosen | No | Production readiness blocked if absent/invalid. |
 | `AIRCRAFT_STALE_AFTER_SECONDS` | Required stale-aircraft removal threshold for WebSocket | Positive configured value; none chosen | No | Production readiness blocked if absent/invalid. |
 | `OBSERVATION_RETENTION_DAYS` | Required retention policy | Positive integer; `unlimited` only with explicit approval | No | Production readiness blocked if unset. |
@@ -122,8 +127,6 @@ This is the sole canonical configuration table. `deployment-required` means no d
 | `IMAGE_PROVIDER_CREDENTIAL` | Conditional provider secret | Provider-defined secret | Yes | Adapter unconfigured if required and absent. |
 | `FLIGHT_PROVIDER` | Optional adapter selection | `disabled` or approved identifier | No | Absent => unconfigured. Unknown ID fails config validation. |
 | `FLIGHT_PROVIDER_CREDENTIAL` | Conditional provider secret | Provider-defined secret | Yes | Adapter unconfigured if required and absent. |
-| `AUDIO_SOURCE_MODE` | Optional audio adapter | `unconfigured` or approved identifier | No | Absent => unavailable; no readiness impact. |
-| `AUDIO_SOURCE_CREDENTIAL` | Conditional audio secret | Provider-defined secret | Yes | Adapter unconfigured if required and absent. |
 | `AUDIO_STATIONS_CONFIG` | Optional non-secret station list | Operator config reference; format TBD | No | Absent => empty list/unconfigured. |
 
 Provider-specific endpoint names, ports, quotas and credentials are intentionally omitted until provider selection. No arbitrary API/audio URLs are accepted from browser input.

@@ -34,7 +34,7 @@
 - **Database**: migrations work from empty schema; indexes support history/time queries; account is least privilege; no audio binary data exists.
 - **Enrichment/location**: each external value carries provider/time/status; missing data is normal; distance units and null behavior are correct; observed track remains distinct from route estimate.
 - **Analytics**: counts use defined windows; rates identify time basis; unavailable signal metrics are omitted; coverage is described as observed positions, not RF contour.
-- **Audio**: no playback claim without verified source; browser controls work with mocked stream metadata; ADS-B receiver is not silently retuned.
+- **Audio**: verify the VOHS station IDs against the current AAI eAIP, confirm the RTL-SDR switches exclusively from readsb to AM and back, and verify private browser MP3 playback. ADS-B status must show paused during audio and resume only after readsb reconnects.
 - **Frontend**: displays receiver and ingestion state, aircraft list/detail, enrichment provenance, analytics, and audio status; handles empty/offline/stale/error states accessibly; no map or mobile UI required.
 - **Deployment/security**: existing MySQL reused; no duplicate DB service; no real secrets in repository; existing runtime services/config are preserved unless separately approved.
 

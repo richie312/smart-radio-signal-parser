@@ -21,7 +21,7 @@ class ApiContractTests(unittest.TestCase):
 
     def test_empty_snapshot_and_optional_features_are_truthful(self):
         self.assertEqual(self.client.get("/api/v1/aircraft").json(), {"items": [], "next_cursor": None})
-        self.assertEqual(self.client.get("/api/v1/audio/config").json(), {"state": "unconfigured", "stations": []})
+        self.assertEqual(self.client.get("/api/v1/audio/config").json()["state"], "unconfigured")
         ts = self.client.get("/api/v1/analytics/timeseries", params={"from": "2025-01-01T00:00:00Z", "to": "2025-01-01T00:05:00Z", "bucket_seconds": 60}).json()
         self.assertIn("buckets", ts)
         self.assertFalse(ts["data_available"])

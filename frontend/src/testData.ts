@@ -35,4 +35,4 @@ export const testTimeseries: AnalyticsTimeseries = {
   buckets: Array.from({ length: 6 }, (_, i) => ({ bucket_start: stamp((5 - i) * 10), decoded_frame_count: null, aircraft_update_count: 20, distinct_aircraft_count: 1 })),
 };
 
-export const testAudio: AudioConfig = { state: 'unconfigured', stations: [] };
+export const testAudio: AudioConfig = { state: 'unconfigured', airport: '', source: '', mode: null, station_id: null, stations: [] };

@@ -1,23 +1,24 @@
 # Docker build and runbook
 
-Run commands from the repository root, where `docker-compose.yaml` is located. On Linux, Compose builds the local readsb wrapper image from the pinned upstream RTL-SDR-enabled image and builds the ADS-B API image. Compose starts the two services on `my_rasp_network`; readsb receives the USB SDR and the API reads its JSON position stream at `readsb:30006`.
+Run commands from the repository root. On the Linux Docker host with the RTL-SDR attached, Compose builds a radio controller image and the API image. The radio controller owns the USB device and runs exactly one receive process at a time: readsb for ADS-B, or rtl_fm plus FFmpeg for airband AM audio. The API proxies the browser audio stream and controls the mode switch; it has no USB device mapping and no Docker socket.
 
-| Service | Build context | Purpose |
-| --- | --- | --- |
-| `readsb` | Repository root | Decodes ADS-B using the attached RTL-SDR and serves JSON positions inside the Compose network. |
-| `adsb_api` | `backend/` | Runs the FastAPI application and persists observations to MySQL. |
+| Service | Purpose |
+| --- | --- |
+| `radio_control` | Owns `/dev/bus/usb`; switches between readsb JSON output and one selected Hyderabad airband frequency. |
+| `adsb_api` | Runs FastAPI, persists ADS-B observations, and provides authenticated internal radio control and audio proxy endpoints. |
 
-The readsb base image is pinned in the root `Dockerfile`. It supports common `amd64` and `arm64` Linux Docker hosts; the Linux host must expose the dongle at `/dev/bus/usb`.
+The root `Dockerfile` uses a pinned upstream readsb image and adds RTL-SDR tools, FFmpeg, and the small receive-mode controller. The AAI eAIP provides the Hyderabad VOHS station presets in `backend/stations.json`.
 
-## Prepare configuration
+## Configure `.env`
 
-Create `.env` from the example, then set the database account and enable ADS-B mode:
+Create `.env` from the example if needed, then configure the provisioned database credentials and ADS-B receiver values:
 
 ```sh
 cp .env.example .env
+openssl rand -hex 32
 ```
 
-Set the ADS-B values in `.env`:
+Copy the generated token into `RADIO_CONTROL_TOKEN` in `.env`. Use this same `.env` value for both Compose services; do not paste it into chat or commit it. Set:
 
 ```dotenv
 OPERATING_MODE=adsb
@@ -29,130 +30,129 @@ RECEIVER_MODE=rtlsdr_usb
 DECODER_NAME=readsb
 DECODER_INPUT_MODE=direct_usb
 DECODER_OUTPUT_MODE=readsb_json
-DECODER_ENDPOINT=tcp://readsb:30006
+DECODER_ENDPOINT=tcp://radio-control:30006
 ```
 
-Keep `.env` local and do not commit credentials. The migration/admin account should remain separate from the runtime database account. The runtime account needs `SELECT, INSERT, UPDATE` on `receivers` and `aircraft`, and `SELECT, INSERT` on `aircraft_observations`, plus the API's read access to the schema.
+Keep the migration/admin account separate. The runtime account needs the API's read access plus `SELECT, INSERT, UPDATE` on `receivers` and `aircraft`, and `SELECT, INSERT` on `aircraft_observations`.
 
-Create the external Compose network once on each Docker host if it is not already present:
+The external Compose network must exist on this host:
 
 ```sh
 docker network inspect my_rasp_network || docker network create my_rasp_network
 ```
 
-## Switch an existing .10 installation to containerized readsb
+## Move USB ownership to Compose on .10
 
-Only one process can own the USB SDR. This project previously used host-installed readsb and may have an old `rtl_tcp` container. Update `.env` so `DECODER_ENDPOINT=tcp://readsb:30006`, then stop those owners before starting the Compose readsb service:
+The existing host-installed readsb service currently owns the tuner. Stop it before starting the Compose controller. First update `.env` with the endpoint and token above, then run:
 
 ```sh
 sudo systemctl disable --now readsb
-docker rm -f rtl_tcp
+docker ps -a --filter name=readsb --filter name=rtl_tcp
+```
+
+If the second command lists old `readsb` or `rtl_tcp` containers, remove those listed containers by name, for example:
+
+```sh
+docker rm -f readsb rtl_tcp
+```
+
+Confirm the dongle is released before Compose takes ownership:
+
+```sh
 sudo fuser -v /dev/bus/usb/*
 ```
 
-If Docker says there is no `rtl_tcp` container, continue. The last command should show no process using the dongle. If it still lists a process, identify and stop that owner before continuing. The `disable` command prevents host readsb from automatically competing with the Compose service after a reboot. To roll back to host readsb, stop the Compose `readsb` service first, then run `sudo systemctl enable --now readsb`.
+If a process is listed, identify and stop it before continuing. To return to the host-installed service later, stop the Compose `radio_control` service first and then run `sudo systemctl enable --now readsb`.
 
-## Build images
+## Build and start
 
-Build all configured services without starting containers:
+Build the images:
 
 ```sh
 docker-compose build
 ```
 
-Build or refresh one service:
+Build without cache or pull the pinned base before building:
 
 ```sh
-docker-compose build readsb
-docker-compose build adsb_api
-```
-
-Pull current bases before building, or rebuild without cache:
-
-```sh
-docker-compose build --pull
 docker-compose build --no-cache
+docker-compose build --pull
 ```
 
-The readsb base image is intentionally pinned; `--pull` will not change its pinned version. Upgrade the tag in `Dockerfile` as a deliberate change.
-
-## Start and verify
-
-Build and start both decoder and API:
+Start the radio controller and API:
 
 ```sh
-docker-compose up -d --build --remove-orphans readsb adsb_api
+docker-compose up -d --build --remove-orphans radio_control adsb_api
 docker-compose ps
-docker-compose logs --tail=80 readsb adsb_api
+docker-compose logs --tail=80 radio_control adsb_api
 ```
 
-Check API readiness and component status:
+The API should be ready at `127.0.0.1:8010`. Check readiness and operating mode:
 
 ```sh
 python3 -c "from urllib.request import urlopen; print(urlopen('http://127.0.0.1:8010/health/ready', timeout=5).status)"
 python3 -c "from urllib.request import urlopen; print(urlopen('http://127.0.0.1:8010/api/v1/status', timeout=5).read().decode())"
 ```
 
-Readiness should be `200`. Once readsb receives aircraft positions and the API writes them to MySQL, status should show the receiver, decoder, and ingestion online with an increasing accepted count. These JSON lines are aircraft position updates, not individual RF frames, so decoded frame rate is not available from this output.
+## Use Station Monitor
 
-The API binds to `127.0.0.1:8010` on the Docker host. To view the .10 API from a workstation React dev server, create an SSH tunnel using the configured host alias:
+Choose a Hyderabad VOHS station and click **Start listening · pause ADS-B**. The controller stops readsb, tunes the SDR to the selected frequency in receive-only AM mode, and streams audio privately through the API. Click **Stop listening · resume ADS-B** to stop the audio receiver and restart readsb. ADS-B updates pause during listening and resume after readsb reconnects. Changing stations while audio is active retunes the same receiver.
+
+The presets are based on the current published [AAI eAIP VOHS communication facilities](https://aim-india.aai.aero/eaip/eaip-v2-08-2026/eAIP/IN-AD%202.1VOHS-en-GB.html). Frequencies can change; review the current AIP before use. This setup does not transmit. Keep the stream private and verify applicable local rules before sharing or rebroadcasting it.
+
+No decoder or audio port is published on the host. The API binds to loopback at `127.0.0.1:8010`. To view .10's API from a workstation, create an SSH tunnel using the configured alias:
 
 ```powershell
 ssh -N -L 18010:127.0.0.1:8010 adsb-node-10
 ```
 
-Then start Vite with the tunnel as its API target:
+Then point Vite at the tunnel:
 
 ```powershell
 $env:VITE_DEV_API_TARGET = 'http://127.0.0.1:18010'
 npm.cmd run dev -- --host 127.0.0.1
 ```
 
-## Stop and restart
+## Stop, restart, and rollback
 
 ```sh
-docker-compose restart readsb adsb_api
-docker-compose logs -f readsb
+docker-compose restart radio_control adsb_api
+docker-compose logs -f radio_control
 docker-compose logs -f adsb_api
-docker-compose stop adsb_api
-docker-compose stop readsb
+docker-compose stop radio_control
 ```
 
-`docker-compose down` removes this project's containers but leaves the external `my_rasp_network` and the separately managed MySQL database intact. Do not run host readsb while the Compose `readsb` service owns the dongle.
+Stopping `radio_control` releases the USB device. To roll back to host readsb, verify no controller process remains, then run `sudo systemctl enable --now readsb`. `docker-compose down` removes project containers but leaves the external network and MySQL database intact.
 
 ## Troubleshooting
 
-### Compose reports that `my_rasp_network` is missing
+### `radio_control` exits during startup
 
-Create the external network on this Docker host:
-
-```sh
-docker network create my_rasp_network
-```
-
-### readsb cannot open the RTL-SDR
-
-Check that the host has the device and no other process owns it:
+Check that `RADIO_CONTROL_TOKEN` is set in `.env`, the external network exists, the RTL-SDR is present, and no host process owns it:
 
 ```sh
+docker-compose logs --tail=80 radio_control
 lsusb
 sudo fuser -v /dev/bus/usb/*
-docker-compose logs --tail=80 readsb
 ```
 
-Stop competing host readsb, `rtl_tcp`, or other SDR services before restarting the Compose readsb container.
+The host `readsb` service, an old `rtl_tcp` container, or another SDR application must be stopped before this container starts.
 
 ### API reports `database_unavailable`
 
-Check the configured database name, network reachability, credentials, and table grants. Error 1049 means the database name does not exist; error 1045 means MySQL rejected the credentials or client host. Apply `backend/migrations/001_initial.sql` to the existing `adsb` schema using an authorized migration/admin account, then verify that `schema_migrations` contains version 1. Do not enable remote MySQL root access just to run the API.
+Check the database name, credentials, network access, and table grants. MySQL error 1049 means the database name does not exist; 1045 means MySQL rejected the account or client host. Apply `backend/migrations/001_initial.sql` to the existing `adsb` schema with an authorized migration account, then check that `schema_migrations` contains version 1. Do not enable remote MySQL root access for the application.
 
-### Legacy Compose fails with `KeyError: 'ContainerConfig'`
+### Audio switching fails
 
-With Docker Compose V1, remove and recreate only the affected service container:
+Check the radio controller logs and USB owner. The controller accepts only station IDs in `backend/stations.json` and only starts the audio process after stopping readsb. If the tuner cannot open or the decoder restart fails, the API returns `receiver_switch_failed`; inspect `docker-compose logs --tail=80 radio_control` before retrying.
+
+### Legacy Compose reports `KeyError: 'ContainerConfig'`
+
+Remove and recreate only the API service container:
 
 ```sh
 docker-compose rm -sf adsb_api
 docker-compose up -d --build adsb_api
 ```
 
-For the decoder container, use `readsb` as the service name. Do not remove the USB-owning readsb service unless you intend to stop reception.
+If recreating the USB-owning controller, stop it only when you intend to stop reception, then use `docker-compose up -d --build radio_control`.
