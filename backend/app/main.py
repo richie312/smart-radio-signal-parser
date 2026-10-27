@@ -102,16 +102,6 @@ def create_app(repository: Repository | None = None, settings: Settings | None =
         if cfg.operating_mode == "adsb":
             repository_for_ingestion = repo()
             app.state.repository = repository_for_ingestion
-            try:
-                await asyncio.to_thread(repository_for_ingestion.ensure_receiver, cfg.receiver_id, {
-                    "receiver_mode": "rtlsdr_usb", "decoder": "readsb",
-                    "input_mode": "direct_usb", "output_mode": "readsb_json",
-                    "endpoint": cfg.decoder_endpoint,
-                })
-            except Exception:
-                # Receiver configuration is DML only. Keep API startup/readiness independent
-                # from the receiver, while ingestion reports a safe database error.
-                app.state.receiver_registration_error = "database_unavailable"
             ingestor = ReadsbIngestor(cfg.decoder_endpoint, cfg.receiver_id, cfg.decoder_version, repository_for_ingestion)
             app.state.ingestor = ingestor
             app.state.ingestor_task = asyncio.create_task(ingestor.run())
@@ -165,7 +155,7 @@ def create_app(repository: Repository | None = None, settings: Settings | None =
                 decoder_state, decoder_error = rec_state, rec_error
                 accepted, rejected, reconnects = ingestor.accepted_count, ingestor.rejected_count, ingestor.reconnect_attempts
                 last_message, last_persisted = ingestor.last_message_at, ingestor.last_persisted_at
-                if ingestor.last_error_code == "database_unavailable" or getattr(app.state, "receiver_registration_error", None):
+                if ingestor.last_error_code == "database_unavailable":
                     ingestion_state, ingestion_error = "degraded", "database_unavailable"
                 elif accepted and rec_state == "online":
                     ingestion_state, ingestion_error = "online", None

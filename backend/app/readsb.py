@@ -14,6 +14,10 @@ from .contracts import normalize_icao, validate_measurements
 MAX_LINE_BYTES = 65536
 
 
+class _ReceiverRegistrationError(Exception):
+    pass
+
+
 def _number(value: Any, name: str) -> float | None:
     if value is None:
         return None
@@ -95,11 +99,13 @@ class ReadsbIngestor:
 
     def __init__(self, endpoint: str, receiver_id: str, decoder_version: str | None, repository):
         parsed = urlparse(endpoint)
+        self.endpoint = endpoint
         self.host = parsed.hostname or ""
         self.port = parsed.port or 0
         self.receiver_id = receiver_id
         self.decoder_version = decoder_version
         self.repository = repository
+        self.receiver_registered = False
         self.connected = False
         self.last_message_at: datetime | None = None
         self.last_persisted_at: datetime | None = None
@@ -126,6 +132,16 @@ class ReadsbIngestor:
         while not self._stop.is_set():
             writer = None
             try:
+                if not self.receiver_registered:
+                    try:
+                        await asyncio.to_thread(self.repository.ensure_receiver, self.receiver_id, {
+                            "receiver_mode": "rtlsdr_usb", "decoder": "readsb",
+                            "input_mode": "direct_usb", "output_mode": "readsb_json",
+                            "endpoint": self.endpoint,
+                        })
+                        self.receiver_registered = True
+                    except Exception:
+                        raise _ReceiverRegistrationError from None
                 reader, writer = await asyncio.wait_for(asyncio.open_connection(self.host, self.port), timeout=5)
                 self.connected = True
                 self.last_error_code = None
@@ -149,6 +165,7 @@ class ReadsbIngestor:
                     try:
                         await asyncio.to_thread(self.repository.persist_observation, observation)
                     except Exception:
+                        self.receiver_registered = False
                         self.last_error_code = "database_unavailable"
                         continue
                     self.accepted_count += 1
@@ -156,6 +173,10 @@ class ReadsbIngestor:
                     self.last_error_code = None
             except asyncio.CancelledError:
                 raise
+            except _ReceiverRegistrationError:
+                self.connected = False
+                self.reconnect_attempts += 1
+                self.last_error_code = "database_unavailable"
             except Exception:
                 self.connected = False
                 self.reconnect_attempts += 1
