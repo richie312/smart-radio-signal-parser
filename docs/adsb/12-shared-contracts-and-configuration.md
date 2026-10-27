@@ -49,7 +49,7 @@ Backend adds `ingested_at` (UTC when accepted) and `observation_id`; never overw
 
 ## Observation and session model
 
-Each envelope represents one decoder output record; `record_kind` is `decoded_frame` when it is a distinct decoded Mode S/ADS-B frame, or `aircraft_update` when the decoder emits an aggregated aircraft state update. The selected decoder output semantics must be documented and integration-tested before adapter implementation. `AircraftObservation` API and DB fields: `observation_id`, `record_kind`, `icao24`, `receiver_id`, `event_time|null`, `ingested_at`, `source_event_id|null`, `callsign|null`, `latitude_deg|null`, `longitude_deg|null`, `altitude_ft|null`, `ground_speed_kt|null`, `track_deg|null`, `vertical_rate_fpm|null`, `squawk|null`, `on_ground|null`, `signal_metric|null`, `signal_metric_kind|null`, `signal_metric_unit|null`, `decoder_name`, `decoder_version|null`.
+Each envelope represents one decoder output record; `record_kind` is `decoded_frame` when it is a distinct decoded Mode S/ADS-B frame, or `aircraft_update` when the decoder emits an aggregated aircraft state update. The readsb JSON adapter maps one position line to `aircraft_update`; verify its exact installed-build output and live persistence before production acceptance. `AircraftObservation` API and DB fields: `observation_id`, `record_kind`, `icao24`, `receiver_id`, `event_time|null`, `ingested_at`, `source_event_id|null`, `callsign|null`, `latitude_deg|null`, `longitude_deg|null`, `altitude_ft|null`, `ground_speed_kt|null`, `track_deg|null`, `vertical_rate_fpm|null`, `squawk|null`, `on_ground|null`, `signal_metric|null`, `signal_metric_kind|null`, `signal_metric_unit|null`, `decoder_name`, `decoder_version|null`.
 
 Table `aircraft` is keyed by ICAO24. `aircraft_observations` references aircraft and receiver. Required indexes: unique `(receiver_id, decoder_name, source_event_id)` for non-null event IDs; `(icao24,event_time,observation_id)`, `(receiver_id,ingested_at)`, and `(ingested_at)`. MySQL nullable unique behavior must be verified against configured version. Never deduplicate identical field values when source has no stable event identity; no event ID means insert as a new observation.
 
@@ -105,6 +105,7 @@ This is the sole canonical configuration table. `deployment-required` means no d
 | `DB_PASSWORD` | Required runtime credential | Operator secret | Yes | Fail startup; redact. |
 | `DB_CONNECT_TIMEOUT_SECONDS` | Optional bounded connection timeout | Positive implementation-selected value | No | Invalid fails. |
 | `OPERATING_MODE` | Required hardware mode | `adsb` or `sdrpp_scanner`; no default | No | Fail; never auto-switch. |
+| `RECEIVER_ID` | Required stable receiver identifier in ADS-B mode | Operator-selected ID, at most 96 characters; no default | No | Fail ADS-B startup if missing/invalid. |
 | `RECEIVER_MODE` | Required only in ADS-B mode | `rtlsdr_usb`; `airspy_server` only after exact protocol verified | No | ADS-B mode fails if absent/unsupported. |
 | `RECEIVER_HOST` | Required only for network receiver | Verified address; none for direct USB | No | Selected adapter fails if needed and absent. |
 | `RECEIVER_PORT` | Required only for network receiver | Current rtl_tcp port 1234 is known; no other default | No | Selected adapter fails if needed and absent. |

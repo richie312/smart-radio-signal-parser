@@ -16,6 +16,8 @@ Run the ADS-B decoder on `.10`, where the RTL-SDR is physically attached. The de
 
 The selected output candidate is `readsb --net-json-port`, which upstream documents as one JSON line for each aircraft position update. Normalize these records as `record_kind=aircraft_update`; frame counts and frame rates remain unavailable. See the [readsb build and device documentation](https://github.com/wiedehopf/readsb) and [JSON position output option](https://github.com/wiedehopf/readsb/blob/dev/README.md).
 
+The API now includes a TCP JSON ingestor and MySQL persistence path for this output. It creates/updates the configured receiver row using DML and requires the runtime database account to have the table privileges documented in the [Docker runbook](../docker-runbook.md). Parser implementation is not evidence of live compatibility; keep the hardware and end-to-end acceptance gate below.
+
 Exact release/commit, Linux distribution, USB serial/device index, bind address, listener port, firewall rule, and service manager are deployment values to inspect and record on `.10` before installation. Do not assume a default port or silently replace its existing service.
 
 ## Execution sequence
@@ -36,4 +38,4 @@ Stop the ADS-B decoder, confirm it released the RTL-SDR, then restore the saved 
 
 ## Current gate
 
-The user has authorized planning and execution, but the only tested SSH attempt was denied. No service was stopped, no package was installed on `.10`, and no USB ownership or live RF test has been performed. Remote execution resumes once authorized SSH access is available.
+The user reports that readsb and its `--device-type` / `--net-json-port` options are present, and the API schema-version check returned the expected result. These checks do not prove the selected listener is active, USB is released, or live updates reach MySQL. SSH from this workspace is still denied, so the `.10` mode switch and live end-to-end check remain operator-side steps. Follow the [Docker runbook](../docker-runbook.md) for receiver configuration and API verification.

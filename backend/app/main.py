@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 from datetime import datetime, timedelta, timezone
 import json
 import math
@@ -14,11 +15,14 @@ from fastapi.responses import JSONResponse
 
 from .contracts import ComponentStatus, Problem, normalize_icao, parse_time, utc_now
 from .repositories import EmptyRepository, MySQLRepository, Repository
+from .readsb import ReadsbIngestor
 from .settings import Settings
 
 
-def _status(state: str, *, error: str | None = None, details: dict | None = None, last: datetime | None = None):
-    return ComponentStatus(state=state, updated_at=utc_now(), last_success_at=last, error_code=error, details=details or {})
+def _status(state: str, *, error: str | None = None, details: dict | None = None,
+            last: datetime | None = None, message: datetime | None = None):
+    return ComponentStatus(state=state, updated_at=utc_now(), last_success_at=last,
+                           last_message_at=message, error_code=error, details=details or {})
 
 
 def _cursor_decode(cursor: str | None) -> int:
@@ -41,6 +45,8 @@ def create_app(repository: Repository | None = None, settings: Settings | None =
     app.state.repository = repository
     app.state.settings = settings or Settings.from_env()
     app.state.started = False
+    app.state.ingestor = None
+    app.state.ingestor_task = None
 
     @app.middleware("http")
     async def request_id(request: Request, call_next):
@@ -93,7 +99,36 @@ def create_app(repository: Repository | None = None, settings: Settings | None =
         # Test factories inject repository/settings. Production config errors fail closed.
         if cfg.config_errors and cfg.app_env != "test":
             raise RuntimeError("required configuration is missing or invalid")
+        if cfg.operating_mode == "adsb":
+            repository_for_ingestion = repo()
+            app.state.repository = repository_for_ingestion
+            try:
+                await asyncio.to_thread(repository_for_ingestion.ensure_receiver, cfg.receiver_id, {
+                    "receiver_mode": "rtlsdr_usb", "decoder": "readsb",
+                    "input_mode": "direct_usb", "output_mode": "readsb_json",
+                    "endpoint": cfg.decoder_endpoint,
+                })
+            except Exception:
+                # Receiver configuration is DML only. Keep API startup/readiness independent
+                # from the receiver, while ingestion reports a safe database error.
+                app.state.receiver_registration_error = "database_unavailable"
+            ingestor = ReadsbIngestor(cfg.decoder_endpoint, cfg.receiver_id, cfg.decoder_version, repository_for_ingestion)
+            app.state.ingestor = ingestor
+            app.state.ingestor_task = asyncio.create_task(ingestor.run())
         app.state.started = True
+
+    @app.on_event("shutdown")
+    async def shutdown():
+        ingestor = app.state.ingestor
+        task = app.state.ingestor_task
+        if ingestor is not None:
+            ingestor.stop()
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     @app.get("/health/live")
     def live(): return {"state": "online"}
@@ -110,14 +145,38 @@ def create_app(repository: Repository | None = None, settings: Settings | None =
         db_ok, db_error = db_health()
         scanner = cfg.operating_mode == "sdrpp_scanner"
         mode_unknown = cfg.operating_mode not in {"adsb", "sdrpp_scanner"}
-        rec_state = "unconfigured" if scanner or mode_unknown else "error"
-        reason = "inactive_by_mode" if scanner else ("configuration_required" if mode_unknown else "decoder_not_implemented")
         base_unconfigured = _status("unconfigured", details={"reason": "not_configured"}).model_dump(mode="json")
-        rec = _status(rec_state, error="invalid_configuration" if rec_state == "error" else None,
-                      details={"mode": cfg.operating_mode or "unknown", "owner": "sdrpp_scanner" if scanner else "none", "last_message_at": None, "reconnect_attempts": 0, "reason": reason}).model_dump(mode="json")
-        dec = _status("unconfigured" if scanner else "error", error=None if scanner else "decoder_unconfigured",
-                      details={"name": None, "version": None, "last_message_at": None, "reason": reason}).model_dump(mode="json")
-        ing = _status("unconfigured" if scanner else "degraded", details={"accepted_count": 0, "rejected_count": 0, "last_persisted_at": None, "reason": reason}).model_dump(mode="json")
+        if scanner or mode_unknown:
+            reason = "inactive_by_mode" if scanner else "configuration_required"
+            rec = _status("unconfigured", error="invalid_configuration" if mode_unknown else None,
+                          details={"mode": cfg.operating_mode or "unknown", "owner": "sdrpp_scanner" if scanner else "none", "last_message_at": None, "reconnect_attempts": 0, "reason": reason}).model_dump(mode="json")
+            dec = _status("unconfigured", details={"name": None, "version": None, "last_message_at": None, "reason": reason}).model_dump(mode="json")
+            ing = _status("unconfigured", details={"accepted_count": 0, "rejected_count": 0, "last_persisted_at": None, "reason": reason}).model_dump(mode="json")
+        else:
+            ingestor = app.state.ingestor
+            if ingestor is None:
+                rec_state, rec_error = "error", "invalid_configuration"
+                decoder_state, decoder_error = "unconfigured", "decoder_unconfigured"
+                ingestion_state, ingestion_error = "degraded", "decoder_unconfigured"
+                last_message = last_persisted = None
+                accepted = rejected = reconnects = 0
+            else:
+                rec_state, rec_error = ingestor.status()
+                decoder_state, decoder_error = rec_state, rec_error
+                accepted, rejected, reconnects = ingestor.accepted_count, ingestor.rejected_count, ingestor.reconnect_attempts
+                last_message, last_persisted = ingestor.last_message_at, ingestor.last_persisted_at
+                if ingestor.last_error_code == "database_unavailable" or getattr(app.state, "receiver_registration_error", None):
+                    ingestion_state, ingestion_error = "degraded", "database_unavailable"
+                elif accepted and rec_state == "online":
+                    ingestion_state, ingestion_error = "online", None
+                else:
+                    ingestion_state, ingestion_error = "degraded", rec_error or "no_updates_received"
+            rec = _status(rec_state, error=rec_error, last=last_message, message=last_message,
+                          details={"mode": "rtlsdr_usb", "owner": "adsb_decoder", "last_message_at": last_message, "reconnect_attempts": reconnects}).model_dump(mode="json")
+            dec = _status(decoder_state, error=decoder_error, last=last_message, message=last_message,
+                          details={"name": "readsb", "version": cfg.decoder_version, "last_message_at": last_message}).model_dump(mode="json")
+            ing = _status(ingestion_state, error=ingestion_error, last=last_persisted,
+                          details={"accepted_count": accepted, "rejected_count": rejected, "last_persisted_at": last_persisted}).model_dump(mode="json")
         site = {"latitude": None, "longitude": None, "configured": False}
         return {"operating_mode": cfg.operating_mode or "unknown", "api": _status("online").model_dump(mode="json"),
                 "database": _status("online" if db_ok else "offline", error=db_error).model_dump(mode="json"),

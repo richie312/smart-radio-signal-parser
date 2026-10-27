@@ -113,7 +113,7 @@ function ReceiverCard({ status, loading, error, refresh }: { status: SystemStatu
   const owner = status?.receiver.details.owner;
   const decoderName = status?.decoder.details.name;
   return <section className="panel receiver-panel" aria-labelledby="receiver-heading">
-    <div className="panel-heading"><div><span className="eyebrow">SYSTEM OVERVIEW</span><h2 id="receiver-heading">Receiver status</h2></div><span className="live-badge"><i aria-hidden="true" /> {status?.operating_mode === 'adsb' ? 'RECEIVING' : 'STANDBY'}</span></div>
+    <div className="panel-heading"><div><span className="eyebrow">SYSTEM OVERVIEW</span><h2 id="receiver-heading">Receiver status</h2></div><span className="live-badge"><i aria-hidden="true" /> {status?.operating_mode === 'adsb' ? status.receiver.state.toUpperCase() : 'STANDBY'}</span></div>
     <ErrorNotice error={error} onRetry={refresh} compact />
     {loading && !status ? <LoadingLine label="Connecting to receiver status…" /> : status ? <>
       <div className="receiver-status-row"><StatePill state={reception.state} /><span className="receiver-status-label">{reception.label}</span></div>

@@ -2,7 +2,7 @@
 -- The application never applies DDL during startup.
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version INT NOT NULL PRIMARY KEY,
-  applied_at DATETIME(3) NOT NULL DEFAULT UTC_TIMESTAMP(3)
+  applied_at DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3))
 ) ENGINE=InnoDB;
 
 CREATE TABLE receivers (

@@ -1,6 +1,7 @@
 """Environment settings. Secrets are never included in repr or errors."""
 from dataclasses import dataclass, field
 import os
+from urllib.parse import urlparse
 
 
 @dataclass(frozen=True)
@@ -10,6 +11,9 @@ class Settings:
     operating_mode: str
     mysql: dict = field(repr=False)
     config_errors: tuple[str, ...] = ()
+    receiver_id: str = ""
+    decoder_endpoint: str = ""
+    decoder_version: str | None = None
 
     @classmethod
     def from_env(cls):
@@ -27,10 +31,25 @@ class Settings:
             if not 1 <= port <= 65535: errors.append("DB_PORT must be a valid TCP port")
             mysql = {"host": os.environ["DB_HOST"], "port": port, "database": os.environ["DB_NAME"], "user": os.environ["DB_USER"], "password": os.environ["DB_PASSWORD"], "connection_timeout": int(os.getenv("DB_CONNECT_TIMEOUT_SECONDS", "5"))}
         if mode == "adsb":
-            # Until receiver and decoder compatibility is approved, configuration remains a hard gate.
-            for key in ("RECEIVER_MODE", "DECODER_NAME", "DECODER_INPUT_MODE", "DECODER_OUTPUT_MODE"):
+            for key in ("RECEIVER_ID", "RECEIVER_MODE", "DECODER_NAME", "DECODER_INPUT_MODE", "DECODER_OUTPUT_MODE", "DECODER_ENDPOINT"):
                 if not os.getenv(key): errors.append(f"{key} is required in adsb mode")
+            if os.getenv("RECEIVER_MODE") != "rtlsdr_usb": errors.append("RECEIVER_MODE must be rtlsdr_usb for the configured readsb adapter")
+            if os.getenv("DECODER_NAME") != "readsb": errors.append("DECODER_NAME must be readsb for the configured adapter")
+            if os.getenv("DECODER_INPUT_MODE") != "direct_usb": errors.append("DECODER_INPUT_MODE must be direct_usb for readsb")
+            if os.getenv("DECODER_OUTPUT_MODE") != "readsb_json": errors.append("DECODER_OUTPUT_MODE must be readsb_json")
+            endpoint = os.getenv("DECODER_ENDPOINT", "")
+            if endpoint:
+                parsed = urlparse(endpoint)
+                try: endpoint_port = parsed.port
+                except ValueError: endpoint_port = None
+                if parsed.scheme != "tcp" or not parsed.hostname or endpoint_port is None or not 1 <= endpoint_port <= 65535:
+                    errors.append("DECODER_ENDPOINT must use tcp://host:port format")
+            if len(os.getenv("RECEIVER_ID", "")) > 96 or os.getenv("RECEIVER_ID", "").strip() != os.getenv("RECEIVER_ID", ""):
+                errors.append("RECEIVER_ID must be at most 96 characters and have no surrounding whitespace")
+        else:
+            endpoint = ""
         if mode == "production":
             for key in ("API_BIND_HOST", "API_PORT", "CORS_ORIGINS", "FLIGHT_SESSION_SILENCE_SECONDS", "AIRCRAFT_STALE_AFTER_SECONDS", "OBSERVATION_RETENTION_DAYS"):
                 if not os.getenv(key): errors.append(f"{key} is required in production")
-        return cls(env or "", os.getenv("LOG_LEVEL", "INFO"), mode or "", mysql, tuple(errors))
+        return cls(env or "", os.getenv("LOG_LEVEL", "INFO"), mode or "", mysql, tuple(errors),
+                   os.getenv("RECEIVER_ID", ""), endpoint, os.getenv("DECODER_VERSION") or None)

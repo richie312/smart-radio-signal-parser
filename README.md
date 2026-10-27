@@ -2,6 +2,10 @@
 
 These documents define the documentation baseline for the ADS-B web application. They do not authorize implementation; review and approval are a gate before coding begins.
 
+## Operations
+
+For image builds, service startup, logs, and shutdown, see the [Docker build and runbook](./docs/docker-runbook.md).
+
 ## Documents
 
 1. [Project overview](./docs/adsb/00-project-overview.md)
