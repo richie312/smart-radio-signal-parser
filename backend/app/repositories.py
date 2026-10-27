@@ -102,7 +102,7 @@ class MySQLRepository(Repository):
                    (record_kind,icao24,receiver_id,event_time,ingested_at,source_event_id,callsign,latitude_deg,longitude_deg,
                     altitude_ft,ground_speed_kt,track_deg,vertical_rate_fpm,squawk,on_ground,signal_metric,
                     signal_metric_kind,signal_metric_unit,decoder_name,decoder_version,metadata_json)
-                   VALUES ('aircraft_update',%s,%s,%s,%s,NULL,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'readsb',%s,%s)""",
+                   VALUES ('aircraft_update',%s,%s,%s,%s,NULL,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'readsb',%s,%s)""",
                 (icao24, observation["receiver_id"], event_time, now, observation.get("callsign"),
                  observation.get("latitude_deg"), observation.get("longitude_deg"), observation.get("altitude_ft"),
                  observation.get("ground_speed_kt"), observation.get("track_deg"), observation.get("vertical_rate_fpm"),
