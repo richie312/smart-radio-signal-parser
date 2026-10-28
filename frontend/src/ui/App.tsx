@@ -59,6 +59,24 @@ function useDashboardData() {
     const timer = window.setInterval(refresh, 15_000);
     return () => window.clearInterval(timer);
   }, [refresh]);
+
+  // Browsers throttle timers and suspend network activity while a laptop sleeps
+  // or a tab is in the background. Refresh as soon as the dashboard is visible
+  // again instead of waiting for the next throttled interval.
+  useEffect(() => {
+    if (testMode) return;
+    const refreshWhenActive = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    document.addEventListener('visibilitychange', refreshWhenActive);
+    window.addEventListener('pageshow', refreshWhenActive);
+    window.addEventListener('online', refreshWhenActive);
+    return () => {
+      document.removeEventListener('visibilitychange', refreshWhenActive);
+      window.removeEventListener('pageshow', refreshWhenActive);
+      window.removeEventListener('online', refreshWhenActive);
+    };
+  }, [refresh]);
   return { status, aircraft, summary, series, audio, refresh, timeHours, setTimeHours, nextCursor, loadMore, loadingMore, moreError };
 }
 
