@@ -19,6 +19,7 @@ import httpx
 from .contracts import ComponentStatus, Problem, normalize_icao, parse_time, utc_now
 from .repositories import EmptyRepository, MySQLRepository, Repository
 from .readsb import ReadsbIngestor
+from .gpsd import GPSDMonitor
 from .settings import Settings
 
 
@@ -63,6 +64,8 @@ def create_app(repository: Repository | None = None, settings: Settings | None =
     app.state.started = False
     app.state.ingestor = None
     app.state.ingestor_task = None
+    app.state.gps_monitor = None
+    app.state.gps_monitor_task = None
 
     @app.middleware("http")
     async def request_id(request: Request, call_next):
@@ -121,18 +124,31 @@ def create_app(repository: Repository | None = None, settings: Settings | None =
             ingestor = ReadsbIngestor(cfg.decoder_endpoint, cfg.receiver_id, cfg.decoder_version, repository_for_ingestion)
             app.state.ingestor = ingestor
             app.state.ingestor_task = asyncio.create_task(ingestor.run())
+        gps_monitor = GPSDMonitor(cfg.gpsd_endpoint)
+        app.state.gps_monitor = gps_monitor
+        app.state.gps_monitor_task = asyncio.create_task(gps_monitor.run())
         app.state.started = True
 
     @app.on_event("shutdown")
     async def shutdown():
         ingestor = app.state.ingestor
         task = app.state.ingestor_task
+        gps_monitor = app.state.gps_monitor
+        gps_task = app.state.gps_monitor_task
         if ingestor is not None:
             ingestor.stop()
+        if gps_monitor is not None:
+            gps_monitor.stop()
         if task is not None:
             task.cancel()
             try:
                 await task
+            except asyncio.CancelledError:
+                pass
+        if gps_task is not None:
+            gps_task.cancel()
+            try:
+                await gps_task
             except asyncio.CancelledError:
                 pass
 
@@ -187,7 +203,16 @@ def create_app(repository: Repository | None = None, settings: Settings | None =
                           details={"name": "readsb", "version": cfg.decoder_version, "last_message_at": last_message}).model_dump(mode="json")
             ing = _status(ingestion_state, error=ingestion_error, last=last_persisted,
                           details={"accepted_count": accepted, "rejected_count": rejected, "last_persisted_at": last_persisted}).model_dump(mode="json")
-        site = {"latitude": None, "longitude": None, "configured": False}
+        gps = app.state.gps_monitor.snapshot() if app.state.gps_monitor is not None else {
+            "state": "offline", "latitude": None, "longitude": None,
+            "accuracy_m": None, "altitude_m": None, "fix_mode": 0,
+            "satellites_visible": 0, "satellites_used": 0,
+            "fix_time": None, "updated_at": None,
+        }
+        site = {
+            **gps,
+            "configured": gps.get("state") in {"online", "no_fix"},
+        }
         audio_state = "online" if audio_active else ("offline" if cfg.operating_mode == "adsb" and radio is None else "unconfigured")
         audio_status = _status(audio_state, details={"mode": radio.get("mode") if radio else None,
                                 "station_id": radio.get("station_id") if radio else None,

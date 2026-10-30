@@ -1,4 +1,16 @@
 services:
+  gpsd:
+    build:
+      context: ./gpsd
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    devices:
+      - "${GPS_DEVICE:-/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_7_-_GPS_GNSS_Receiver-if00}:/dev/gps:rwm"
+    group_add:
+      - "${GPS_DIALOUT_GID:-20}"
+    networks:
+      - my_rasp_network
+
   radio_control:
     container_name: radio-control
     build:
@@ -26,8 +38,10 @@ services:
       API_BIND_HOST: 0.0.0.0
       API_PORT: 8000
       RADIO_CONTROL_URL: http://radio-control:8090
+      GPSD_ENDPOINT: gpsd:2947
     depends_on:
       - radio_control
+      - gpsd
     ports:
       - "192.168.1.10:8010:8000"
     networks:

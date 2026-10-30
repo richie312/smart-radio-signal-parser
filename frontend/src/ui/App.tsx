@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
+import L from 'leaflet';
+import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
 import { api, ApiError, classifyReception, makeTimeWindow } from '../api';
-import type { AnalyticsSummary, AnalyticsTimeseries, AudioConfig, AircraftSummary, SystemStatus } from '../contracts';
+import type { AnalyticsSummary, AnalyticsTimeseries, AudioConfig, AircraftSummary, SiteLocation, SystemStatus } from '../contracts';
 import { testAircraft, testAudio, testStatus, testSummary, testTimeseries } from '../testData';
 
 type LoadState<T> = { value: T | null; loading: boolean; error: ApiError | null };
@@ -103,6 +106,82 @@ function safeMediaUrl(value: string | null | undefined): string | null {
 }
 function stateText(state?: string | null): string { return state ? state.replaceAll('_', ' ') : 'unknown'; }
 function StatePill({ state }: { state: string }) { return <span className={`state-pill state-${state}`}><span aria-hidden="true" className="state-dot" />{stateText(state)}</span>; }
+
+const receiverMarkerIcon = L.divIcon({ className: 'map-div-icon', html: '<span class="receiver-marker">⌖</span>', iconSize: [34, 34], iconAnchor: [17, 17] });
+function aircraftMarkerIcon(track: number | null) {
+  const rotation = track !== null && Number.isFinite(track) ? `transform:rotate(${track}deg)` : '';
+  return L.divIcon({ className: 'map-div-icon', html: `<span class="aircraft-marker" style="${rotation}">▲</span>`, iconSize: [28, 28], iconAnchor: [14, 14] });
+}
+
+function MapViewport({ points, pointsKey }: { points: [number, number][]; pointsKey: string }) {
+  const map = useMap();
+  useEffect(() => {
+    if (points.length === 1) map.setView(points[0], 10, { animate: false });
+    else if (points.length > 1) map.fitBounds(L.latLngBounds(points).pad(0.16), { maxZoom: 10, animate: false });
+  }, [map, pointsKey]);
+  return null;
+}
+
+type BrowserLocation = { latitude: number; longitude: number; accuracy_m: number | null };
+
+function useBrowserLocation(): BrowserLocation | null {
+  const [location, setLocation] = useState<BrowserLocation | null>(null);
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    const watchId = navigator.geolocation.watchPosition(
+      ({ coords }) => setLocation({ latitude: coords.latitude, longitude: coords.longitude, accuracy_m: Number.isFinite(coords.accuracy) ? coords.accuracy : null }),
+      () => { /* Keep GPSD data if browser location is denied or unavailable. */ },
+      { enableHighAccuracy: true, maximumAge: 30_000, timeout: 20_000 },
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
+  return location;
+}
+
+function FlightMap({ rows, site, browserLocation }: { rows: AircraftSummary[] | null; site: SiteLocation | undefined; browserLocation: BrowserLocation | null }) {
+  const serverHasFix = site?.state === 'online' && Number.isFinite(site.latitude) && Number.isFinite(site.longitude);
+  const usingBrowserLocation = !serverHasFix && browserLocation !== null;
+  const sitePosition: [number, number] | null = serverHasFix
+    ? [site!.latitude as number, site!.longitude as number]
+    : browserLocation ? [browserLocation.latitude, browserLocation.longitude] : null;
+  const locationAccuracy = serverHasFix ? site?.accuracy_m : browserLocation?.accuracy_m;
+  const flights = useMemo(() => (rows ?? []).filter((aircraft) => Date.now() - new Date(aircraft.last_seen_at).getTime() <= 15 * 60_000).flatMap((aircraft) => {
+    const observation = aircraft.last_observation;
+    const lat = observation.latitude_deg;
+    const lon = observation.longitude_deg;
+    return lat !== null && lon !== null && Number.isFinite(lat) && Number.isFinite(lon)
+      ? [{ aircraft, observation, position: [lat, lon] as [number, number] }]
+      : [];
+  }), [rows]);
+  const points = useMemo(() => [...(sitePosition ? [sitePosition] : []), ...flights.map((flight) => flight.position)], [sitePosition?.[0], sitePosition?.[1], flights]);
+  const pointsKey = points.map(([lat, lon]) => `${lat.toFixed(4)},${lon.toFixed(4)}`).join('|');
+  const fixLabel = usingBrowserLocation
+    ? `Laptop location · accuracy ${locationAccuracy == null ? 'unavailable' : `±${Math.round(locationAccuracy)} m`}`
+    : site?.state === 'online'
+    ? `GPS fix · ${site.satellites_used ?? 0} satellites used`
+    : site?.state === 'no_fix'
+      ? `GPS has no fix · ${site.satellites_visible ?? 0} visible, ${site.satellites_used ?? 0} used`
+      : 'Waiting for GPS fix';
+
+  return <section className="panel map-panel" aria-labelledby="map-heading">
+    <div className="map-heading">
+      <div><span className="eyebrow">LIVE POSITIONS</span><h2 id="map-heading">Receiver and aircraft map</h2></div>
+      <div className="map-legend"><span><i className="map-legend-site" />{usingBrowserLocation ? 'Laptop location' : 'Your receiver'}</span><span><i className="map-legend-aircraft" />Aircraft</span></div>
+    </div>
+    <div className="map-status"><StatePill state={site?.state ?? 'offline'} /><span>{fixLabel}</span><span>{flights.length} aircraft with positions in the last 15 minutes</span></div>
+    {points.length ? <div className="map-frame">
+      <MapContainer center={points[0]} zoom={7} scrollWheelZoom className="flight-map">
+        <TileLayer url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>' />
+        <MapViewport points={points} pointsKey={pointsKey} />
+        {sitePosition && <Marker position={sitePosition} icon={receiverMarkerIcon}><Popup><strong>{usingBrowserLocation ? 'Laptop location' : 'Your receiver'}</strong><br />{locationAccuracy == null ? 'Accuracy unavailable' : `±${locationAccuracy.toFixed(1)} m accuracy`}</Popup></Marker>}
+        {flights.map(({ aircraft, observation, position }) => <Marker key={aircraft.icao24} position={position} icon={aircraftMarkerIcon(observation.track_deg)}>
+          <Popup><strong>{observation.callsign?.trim() || 'Unknown callsign'}</strong><br />{aircraft.icao24.toUpperCase()}<br />{observation.altitude_ft == null ? 'Altitude unavailable' : `${Math.round(observation.altitude_ft).toLocaleString()} ft`}</Popup>
+        </Marker>)}
+      </MapContainer>
+    </div> : <div className="map-empty"><span className="map-empty-crosshair" aria-hidden="true">⌖</span><strong>No live positions to plot</strong><span>{fixLabel}. Aircraft markers appear when position reports arrive.</span></div>}
+    <div className="map-footer"><span>Map data © OpenStreetMap contributors</span><a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noreferrer">Report a map issue</a></div>
+  </section>;
+}
 
 function ErrorNotice({ error, onRetry, compact = false }: { error: ApiError | null; onRetry: () => void; compact?: boolean }) {
   if (!error) return null;
@@ -278,6 +357,7 @@ function AudioPanel({ audio, loading, error, refresh }: { audio: AudioConfig | n
 
 export default function App() {
   const data = useDashboardData();
+  const browserLocation = useBrowserLocation();
   const [selected, setSelected] = useState<AircraftSummary | null>(null);
   const reception = classifyReception(data.status.value);
   const lastUpdated = data.status.value?.api.updated_at ? formatTime(data.status.value.api.updated_at) : 'Waiting';
@@ -292,6 +372,7 @@ export default function App() {
         <StatCard label="POSITION UPDATES" icon="⌖" value={data.summary.value ? numberOrDash(data.summary.value.position_update_count) : '—'} detail="Valid observed positions" loading={data.summary.loading} error={data.summary.error} />
         <StatCard label="LAST MESSAGE" icon="◷" value={relativeAge(reception.lastMessage)} detail={reception.lastMessage ? formatTime(reception.lastMessage) : 'No message timestamp'} loading={data.status.loading} error={data.status.error} />
       </section>
+      <FlightMap rows={data.aircraft.value} site={data.status.value?.site} browserLocation={browserLocation} />
       <div className="main-grid">
         <div className="main-column">
           <AircraftTable rows={data.aircraft.value} loading={data.aircraft.loading} error={data.aircraft.error} refresh={data.refresh} selected={selected} onSelect={setSelected} status={data.status.value} nextCursor={data.nextCursor} loadMore={data.loadMore} loadingMore={data.loadingMore} moreError={data.moreError} />

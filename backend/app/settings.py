@@ -16,6 +16,7 @@ class Settings:
     decoder_version: str | None = None
     radio_control_url: str = "http://radio-control:8090"
     radio_control_token: str = field(default="", repr=False)
+    gpsd_endpoint: str = "gpsd:2947"
 
     @classmethod
     def from_env(cls):
@@ -56,4 +57,5 @@ class Settings:
                 if not os.getenv(key): errors.append(f"{key} is required in production")
         return cls(env or "", os.getenv("LOG_LEVEL", "INFO"), mode or "", mysql, tuple(errors),
                    os.getenv("RECEIVER_ID", ""), endpoint, os.getenv("DECODER_VERSION") or None,
-                   os.getenv("RADIO_CONTROL_URL", "http://radio-control:8090"), os.getenv("RADIO_CONTROL_TOKEN", ""))
+                   os.getenv("RADIO_CONTROL_URL", "http://radio-control:8090"), os.getenv("RADIO_CONTROL_TOKEN", ""),
+                   os.getenv("GPSD_ENDPOINT", "gpsd:2947"))

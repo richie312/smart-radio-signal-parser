@@ -10,6 +10,21 @@ export interface ComponentStatus {
   details: Record<string, unknown>;
 }
 
+export interface SiteLocation {
+  state?: 'online' | 'no_fix' | 'offline' | 'stale' | 'unconfigured';
+  configured?: boolean;
+  latitude?: number | null;
+  longitude?: number | null;
+  accuracy_m?: number | null;
+  altitude_m?: number | null;
+  fix_mode?: number;
+  satellites_visible?: number;
+  satellites_used?: number;
+  fix_time?: string | null;
+  updated_at?: string | null;
+  receiver_id?: string;
+}
+
 export interface SystemStatus {
   operating_mode: OperatingMode;
   api: ComponentStatus;
@@ -18,7 +33,7 @@ export interface SystemStatus {
   decoder: ComponentStatus;
   ingestion: ComponentStatus;
   audio: ComponentStatus;
-  site: Record<string, unknown>;
+  site: SiteLocation;
 }
 
 export interface AircraftObservation {
