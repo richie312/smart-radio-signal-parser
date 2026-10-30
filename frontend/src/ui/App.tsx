@@ -168,7 +168,7 @@ function FlightMap({ rows, site, browserLocation }: { rows: AircraftSummary[] | 
       <div><span className="eyebrow">LIVE POSITIONS</span><h2 id="map-heading">Receiver and aircraft map</h2></div>
       <div className="map-legend"><span><i className="map-legend-site" />{usingBrowserLocation ? 'Laptop location' : 'Your receiver'}</span><span><i className="map-legend-aircraft" />Aircraft</span></div>
     </div>
-    <div className="map-status"><StatePill state={site?.state ?? 'offline'} /><span>{fixLabel}</span><span>{flights.length} aircraft with positions in the last 15 minutes</span></div>
+    <div className="map-status"><StatePill state={usingBrowserLocation ? 'online' : site?.state ?? 'offline'} /><span>{fixLabel}</span><span>{flights.length} aircraft with positions in the last 15 minutes</span></div>
     {points.length ? <div className="map-frame">
       <MapContainer center={points[0]} zoom={7} scrollWheelZoom className="flight-map">
         <TileLayer url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>' />
