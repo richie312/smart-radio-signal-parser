@@ -138,6 +138,44 @@ function useBrowserLocation(): BrowserLocation | null {
   return location;
 }
 
+function AircraftMapPopup({ aircraft }: { aircraft: AircraftSummary }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [enrichment, setEnrichment] = useState<Awaited<ReturnType<typeof api.enrichment>> | null>(null);
+  const [imageFailed, setImageFailed] = useState(false);
+  const observation = aircraft.last_observation;
+  const callsign = observation.callsign?.trim() ?? '';
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    let active = true;
+    setLoading(true);
+    api.enrichment(aircraft.icao24, callsign, controller.signal)
+      .then((value) => { if (active) setEnrichment(value); })
+      .catch(() => { if (active) setEnrichment(null); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; controller.abort(); };
+  }, [open, aircraft.icao24, callsign]);
+  const imageUrl = safeMediaUrl(enrichment?.image.data?.thumbnail_url ?? enrichment?.image.data?.image_url);
+  const route = enrichment?.flight_info.data;
+  const destination = enrichment?.flight_info.state === 'available' ? route?.destination : null;
+  const altitude = observation.altitude_ft === null
+    ? (observation.on_ground ? 'On ground' : 'Unavailable')
+    : `${Math.round(observation.altitude_ft).toLocaleString()} ft`;
+
+  return <Popup eventHandlers={{ add: () => setOpen(true), remove: () => setOpen(false) }}>
+    <div className="flight-popup">
+      <div className="flight-popup-title"><strong>{callsign || 'Unknown callsign'}</strong><span>{aircraft.icao24.toUpperCase()}</span></div>
+      {imageUrl && !imageFailed ? <img className="flight-popup-image" src={imageUrl} alt={`Aircraft ${aircraft.icao24.toUpperCase()}`} loading="lazy" referrerPolicy="no-referrer" onError={() => setImageFailed(true)} /> : <div className="flight-popup-image-empty">{loading ? 'Looking up aircraft photo…' : 'No aircraft photo available'}</div>}
+      <div className="flight-popup-metrics"><div><span>Speed</span><strong>{observation.ground_speed_kt === null ? 'Unavailable' : `${Math.round(observation.ground_speed_kt)} kt`}</strong></div><div><span>Altitude</span><strong>{altitude}</strong></div></div>
+      <div className="flight-popup-destination"><span>Destination</span><strong>{destination || (loading ? 'Looking up route…' : 'Unavailable for this callsign')}</strong></div>
+      {route?.airline && <small className="flight-popup-airline">{route.airline}</small>}
+      {imageUrl && <small className="flight-popup-source">Photo via <a href="https://airport-data.com/" target="_blank" rel="noreferrer">airport-data.com</a></small>}
+      {destination && <small className="flight-popup-source">Published route via <a href="https://adsbdb.com/" target="_blank" rel="noreferrer">ADSBDB</a>; may not reflect this live leg</small>}
+    </div>
+  </Popup>;
+}
+
 function FlightMap({ rows, site, browserLocation }: { rows: AircraftSummary[] | null; site: SiteLocation | undefined; browserLocation: BrowserLocation | null }) {
   const serverHasFix = site?.state === 'online' && Number.isFinite(site.latitude) && Number.isFinite(site.longitude);
   const usingBrowserLocation = !serverHasFix && browserLocation !== null;
@@ -175,7 +213,7 @@ function FlightMap({ rows, site, browserLocation }: { rows: AircraftSummary[] | 
         <MapViewport points={points} pointsKey={pointsKey} />
         {sitePosition && <Marker position={sitePosition} icon={receiverMarkerIcon}><Popup><strong>{usingBrowserLocation ? 'Laptop location' : 'Your receiver'}</strong><br />{locationAccuracy == null ? 'Accuracy unavailable' : `±${locationAccuracy.toFixed(1)} m accuracy`}</Popup></Marker>}
         {flights.map(({ aircraft, observation, position }) => <Marker key={aircraft.icao24} position={position} icon={aircraftMarkerIcon(observation.track_deg)}>
-          <Popup><strong>{observation.callsign?.trim() || 'Unknown callsign'}</strong><br />{aircraft.icao24.toUpperCase()}<br />{observation.altitude_ft == null ? 'Altitude unavailable' : `${Math.round(observation.altitude_ft).toLocaleString()} ft`}</Popup>
+          <AircraftMapPopup aircraft={aircraft} />
         </Marker>)}
       </MapContainer>
     </div> : <div className="map-empty"><span className="map-empty-crosshair" aria-hidden="true">⌖</span><strong>No live positions to plot</strong><span>{fixLabel}. Aircraft markers appear when position reports arrive.</span></div>}

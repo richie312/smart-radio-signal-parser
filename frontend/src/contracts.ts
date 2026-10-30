@@ -71,6 +71,11 @@ export interface EnrichmentResult<T = Record<string, unknown>> {
   safe_error_code: string | null;
 }
 
+export interface AircraftPopupEnrichment {
+  image: EnrichmentResult<{ image_url: string; thumbnail_url: string; attribution: string; source_page: string; license: string }>;
+  flight_info: EnrichmentResult<{ flight_id: string; origin: string | null; destination: string | null; airline: string | null; provider_time: string | null; valid_from: string | null; valid_to: string | null }>;
+}
+
 export interface AircraftSummary {
   icao24: string;
   first_seen_at: string;

@@ -1,4 +1,4 @@
-import type { AnalyticsSummary, AnalyticsTimeseries, AudioConfig, AircraftSummary, ComponentStatus, Page, Problem, SystemStatus } from './contracts';
+import type { AnalyticsSummary, AnalyticsTimeseries, AudioConfig, AircraftPopupEnrichment, AircraftSummary, ComponentStatus, Page, Problem, SystemStatus } from './contracts';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 
@@ -28,6 +28,7 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
 export const api = {
   status: (signal?: AbortSignal) => request<SystemStatus>('/api/v1/status', signal),
   aircraft: (params: URLSearchParams, signal?: AbortSignal) => request<Page<AircraftSummary>>(`/api/v1/aircraft?${params}`, signal),
+  enrichment: (icao24: string, callsign: string, signal?: AbortSignal) => request<AircraftPopupEnrichment>(`/api/v1/enrichment/${encodeURIComponent(icao24)}${callsign ? `?callsign=${encodeURIComponent(callsign)}` : ''}`, signal),
   summary: (from: string, to: string, signal?: AbortSignal) => request<AnalyticsSummary>(`/api/v1/analytics/summary?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, signal),
   timeseries: (from: string, to: string, bucketSeconds: number, signal?: AbortSignal) => request<AnalyticsTimeseries>(`/api/v1/analytics/timeseries?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&bucket_seconds=${bucketSeconds}`, signal),
   audio: (signal?: AbortSignal) => request<AudioConfig>('/api/v1/audio/config', signal),

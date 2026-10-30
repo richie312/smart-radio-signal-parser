@@ -6,6 +6,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import json
 import math
+import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -66,6 +67,7 @@ def create_app(repository: Repository | None = None, settings: Settings | None =
     app.state.ingestor_task = None
     app.state.gps_monitor = None
     app.state.gps_monitor_task = None
+    app.state.enrichment_cache = {}
 
     @app.middleware("http")
     async def request_id(request: Request, call_next):
@@ -302,11 +304,78 @@ def create_app(repository: Repository | None = None, settings: Settings | None =
         return {"window": {"from": start, "to": end}, "bucket_seconds": bucket_seconds, "receiver_id": receiver_id, "data_available": False, "buckets": []}
 
     @app.get("/api/v1/enrichment/{icao24}")
-    def enrichment(request: Request, icao24: str):
-        try: normalize_icao(icao24)
+    async def enrichment(request: Request, icao24: str, callsign: str | None = Query(None, max_length=16)):
+        try: key = normalize_icao(icao24)
         except ValueError as e: return problem(request, 422, "invalid_icao24", str(e))
-        return {"image": {"state": "unconfigured", "provider_id": None, "fetched_at": None, "expires_at": None, "match_confidence": None, "data": None, "attribution": None, "safe_error_code": None},
-                "flight_info": {"state": "unconfigured", "provider_id": None, "fetched_at": None, "expires_at": None, "match_confidence": None, "data": None, "attribution": None, "safe_error_code": None}}
+        clean_callsign = (callsign or "").strip().upper()
+        if clean_callsign and not re.fullmatch(r"[A-Z0-9-]{2,16}", clean_callsign):
+            clean_callsign = ""
+        cache_key = (key, clean_callsign)
+        cached = app.state.enrichment_cache.get(cache_key)
+        now = datetime.now(timezone.utc)
+        if cached and cached[0] > now:
+            return cached[1]
+        aircraft_data = route_data = None
+        provider_error = False
+        try:
+            params = {"callsign": clean_callsign} if clean_callsign else None
+            async with httpx.AsyncClient(timeout=httpx.Timeout(4.0), follow_redirects=False) as client:
+                response = await client.get(f"https://api.adsbdb.com/v0/aircraft/{key}", params=params)
+            if response.status_code == 200:
+                payload = response.json()
+                body = payload.get("response") if isinstance(payload, dict) else None
+                if isinstance(body, dict):
+                    aircraft_data = body.get("aircraft") if isinstance(body.get("aircraft"), dict) else None
+                    route_data = body.get("flightroute") if isinstance(body.get("flightroute"), dict) else None
+            elif response.status_code != 404:
+                provider_error = True
+        except (httpx.HTTPError, ValueError):
+            provider_error = True
+
+        photo_url = aircraft_data.get("url_photo") if aircraft_data else None
+        thumb_url = aircraft_data.get("url_photo_thumbnail") if aircraft_data else None
+        allowed_photo_hosts = {"airport-data.com", "www.airport-data.com", "image.airport-data.com"}
+        def safe_photo_url(value):
+            if not isinstance(value, str): return None
+            try:
+                parsed = httpx.URL(value)
+                return value if parsed.scheme == "https" and parsed.host in allowed_photo_hosts else None
+            except Exception:
+                return None
+        photo_url = safe_photo_url(photo_url) or safe_photo_url(thumb_url)
+        thumb_url = safe_photo_url(thumb_url) or photo_url
+        fetched_at = now.isoformat()
+        source_page = "https://airport-data.com/"
+        image = {"state": "available" if photo_url else ("unavailable" if provider_error else "not_found"),
+                 "provider_id": "adsbdb", "fetched_at": fetched_at, "expires_at": None,
+                 "match_confidence": 1.0 if photo_url else None,
+                 "data": {"image_url": photo_url, "thumbnail_url": thumb_url,
+                          "attribution": "Photo data via ADSBDB / airport-data.com",
+                          "source_page": source_page, "license": "See source site terms"} if photo_url else None,
+                 "attribution": "ADSBDB and airport-data.com" if photo_url else None,
+                 "safe_error_code": "provider_unavailable" if provider_error else None}
+        def airport_label(value):
+            if not isinstance(value, dict): return None
+            name = value.get("name") if isinstance(value.get("name"), str) else None
+            iata = value.get("iata_code") if isinstance(value.get("iata_code"), str) else None
+            icao = value.get("icao_code") if isinstance(value.get("icao_code"), str) else None
+            code = iata or icao
+            return f"{name} ({code})" if name and code else name or code
+        origin = airport_label(route_data.get("origin")) if route_data else None
+        destination = airport_label(route_data.get("destination")) if route_data else None
+        route_available = bool(route_data and (origin or destination))
+        airline = route_data.get("airline") if route_data and isinstance(route_data.get("airline"), dict) else None
+        flight_info = {"state": "available" if route_available else ("unavailable" if provider_error else "not_found"),
+                       "provider_id": "adsbdb", "fetched_at": fetched_at, "expires_at": None,
+                       "match_confidence": 0.7 if route_available else None,
+                       "data": {"flight_id": clean_callsign, "origin": origin, "destination": destination,
+                                "airline": airline.get("name") if airline and isinstance(airline.get("name"), str) else None,
+                                "provider_time": fetched_at, "valid_from": None, "valid_to": None} if route_available else None,
+                       "attribution": "Scheduled route lookup via ADSBDB" if route_available else None,
+                       "safe_error_code": "provider_unavailable" if provider_error else None}
+        result = {"image": image, "flight_info": flight_info}
+        app.state.enrichment_cache[cache_key] = (now + timedelta(minutes=30 if photo_url or route_available else 5), result)
+        return result
 
     @app.get("/api/v1/audio/config")
     def audio_config():
