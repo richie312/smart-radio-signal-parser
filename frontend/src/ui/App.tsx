@@ -157,6 +157,8 @@ function AircraftMapPopup({ aircraft }: { aircraft: AircraftSummary }) {
     return () => { active = false; controller.abort(); };
   }, [open, aircraft.icao24, callsign]);
   const imageUrl = safeMediaUrl(enrichment?.image.data?.thumbnail_url ?? enrichment?.image.data?.image_url);
+  const photoSource = safeMediaUrl(enrichment?.image.data?.source_page);
+  const photoCredit = enrichment?.image.data?.attribution;
   const route = enrichment?.flight_info.data;
   const destination = enrichment?.flight_info.state === 'available' ? route?.destination : null;
   const altitude = observation.altitude_ft === null
@@ -170,7 +172,7 @@ function AircraftMapPopup({ aircraft }: { aircraft: AircraftSummary }) {
       <div className="flight-popup-metrics"><div><span>Speed</span><strong>{observation.ground_speed_kt === null ? 'Unavailable' : `${Math.round(observation.ground_speed_kt)} kt`}</strong></div><div><span>Altitude</span><strong>{altitude}</strong></div></div>
       <div className="flight-popup-destination"><span>Destination</span><strong>{destination || (loading ? 'Looking up route…' : 'Unavailable for this callsign')}</strong></div>
       {route?.airline && <small className="flight-popup-airline">{route.airline}</small>}
-      {imageUrl && <small className="flight-popup-source">Photo via <a href="https://airport-data.com/" target="_blank" rel="noreferrer">airport-data.com</a></small>}
+      {imageUrl && <small className="flight-popup-source">{photoCredit || 'Photo credit'} · <a href={photoSource ?? 'https://airport-data.com/'} target="_blank" rel="noreferrer">Source</a></small>}
       {destination && <small className="flight-popup-source">Published route via <a href="https://adsbdb.com/" target="_blank" rel="noreferrer">ADSBDB</a>; may not reflect this live leg</small>}
     </div>
   </Popup>;

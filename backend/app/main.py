@@ -344,15 +344,41 @@ def create_app(repository: Repository | None = None, settings: Settings | None =
                 return None
         photo_url = safe_photo_url(photo_url) or safe_photo_url(thumb_url)
         thumb_url = safe_photo_url(thumb_url) or photo_url
-        fetched_at = now.isoformat()
+        photo_provider_id = "adsbdb" if photo_url else None
+        photo_attribution = "Photo data via ADSBDB / airport-data.com" if photo_url else None
         source_page = "https://airport-data.com/"
+        if not photo_url:
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(4.0), follow_redirects=False) as client:
+                    photo_response = await client.get(
+                        "https://airport-data.com/api/ac_thumb.json",
+                        params={"m": key, "n": 1},
+                    )
+                if photo_response.status_code == 200:
+                    photo_payload = photo_response.json()
+                    photos = photo_payload.get("data") if isinstance(photo_payload, dict) else None
+                    photo_record = photos[0] if isinstance(photos, list) and photos and isinstance(photos[0], dict) else None
+                    if photo_record:
+                        photo_url = safe_photo_url(photo_record.get("image"))
+                        thumb_url = photo_url
+                        source_page = safe_photo_url(photo_record.get("link")) or source_page
+                        photographer = photo_record.get("photographer")
+                        if photo_url:
+                            photo_provider_id = "airport-data"
+                            photo_attribution = f"Photo by {photographer} via Airport-Data.com" if isinstance(photographer, str) and photographer.strip() else "Photo via Airport-Data.com"
+                elif photo_response.status_code not in (404,):
+                    provider_error = True
+            except (httpx.HTTPError, ValueError):
+                provider_error = True
+        fetched_at = now.isoformat()
         image = {"state": "available" if photo_url else ("unavailable" if provider_error else "not_found"),
-                 "provider_id": "adsbdb", "fetched_at": fetched_at, "expires_at": None,
+                 "provider_id": photo_provider_id,
+                 "fetched_at": fetched_at, "expires_at": None,
                  "match_confidence": 1.0 if photo_url else None,
                  "data": {"image_url": photo_url, "thumbnail_url": thumb_url,
-                          "attribution": "Photo data via ADSBDB / airport-data.com",
+                          "attribution": photo_attribution,
                           "source_page": source_page, "license": "See source site terms"} if photo_url else None,
-                 "attribution": "ADSBDB and airport-data.com" if photo_url else None,
+                 "attribution": photo_attribution,
                  "safe_error_code": "provider_unavailable" if provider_error else None}
         def airport_label(value):
             if not isinstance(value, dict): return None
