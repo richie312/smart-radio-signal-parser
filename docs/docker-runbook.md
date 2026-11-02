@@ -4,7 +4,7 @@ Run commands from the repository root on `.10`. Compose builds a radio controlle
 
 | Service | Purpose |
 | --- | --- |
-| `radio_control` | Owns `/dev/bus/usb`; switches between readsb JSON output and one selected Hyderabad airband frequency. |
+| `radio_control` | Owns `/dev/bus/usb`; switches between readsb JSON/SBS output and one selected Hyderabad airband frequency. |
 | `gpsd` | Reads the VK-172 USB GPS at `/dev/serial/by-id/...` and serves GPSD JSON privately on the Compose network. |
 | `adsb_api` | Runs FastAPI, persists ADS-B observations, and provides authenticated internal radio control and audio proxy endpoints. |
 
@@ -91,13 +91,17 @@ docker compose ps
 docker compose logs --tail=80 gpsd radio_control adsb_api
 ```
 
-The API should be ready at `192.168.1.10:8010`. Check readiness, operating mode, and GPS fix:
+The API should be ready at `192.168.1.10:8010`. Readsb's BaseStation/SBS feed is also published at `192.168.1.10:30003` for a VRS receiver on the LAN. This feed is available only while the SDR is in ADS-B mode; the Station Monitor stops readsb while airband audio is active. Check readiness, operating mode, and GPS fix:
 
 ```sh
 python3 -c "from urllib.request import urlopen; print(urlopen('http://127.0.0.1:8010/health/ready', timeout=5).status)"
 python3 -c "from urllib.request import urlopen; print(urlopen('http://192.168.1.10:8010/api/v1/status', timeout=5).read().decode())"
 docker compose logs --tail=80 gpsd
 ```
+
+### Connect Windows VRS
+
+Install and run VRS on the Windows laptop. In VRS, add a receiver under **Tools → Options → Receivers** with format **BaseStation**, host/address `192.168.1.10`, and port `30003`. Configure VRS to connect to the feed (not push to it), then apply the settings. On `.10`, confirm the listener is published with `docker-compose port radio_control 30003`; from Windows, confirm reachability with `Test-NetConnection 192.168.1.10 -Port 30003`. If the host firewall is enabled, allow inbound TCP 30003 from the trusted LAN. The receiver will report disconnected while airband listening is active and reconnect when readsb resumes.
 
 ## Use Station Monitor
 

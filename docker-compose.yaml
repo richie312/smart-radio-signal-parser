@@ -20,6 +20,8 @@ services:
     restart: unless-stopped
     devices:
       - /dev/bus/usb:/dev/bus/usb
+    ports:
+      - "192.168.1.10:30003:30003"
     environment:
       RADIO_CONTROL_TOKEN: ${RADIO_CONTROL_TOKEN:?Set RADIO_CONTROL_TOKEN in .env}
       OPERATING_MODE: ${OPERATING_MODE:-adsb}

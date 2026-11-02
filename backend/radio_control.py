@@ -63,6 +63,7 @@ def start_adsb() -> None:
         "/usr/local/bin/readsb", "--quiet", "--net", "--device", "0",
         "--device-type", "rtlsdr", "--gain", "auto",
         "--net-bind-address", "0.0.0.0", "--net-json-port", "30006",
+        "--net-sbs-port", "30003",
     ], stdout=subprocess.DEVNULL, stderr=None)
     time.sleep(0.25)
     if readsb.poll() is not None:
