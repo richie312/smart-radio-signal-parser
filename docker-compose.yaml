@@ -28,6 +28,26 @@ services:
     networks:
       - my_rasp_network
 
+  # Optional raw-IQ server for clients such as SDR#. Run this instead of
+  # radio_control because both services need exclusive access to the dongle.
+  rtl_tcp:
+    container_name: rtl-sdr-v4
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: smart-radio-radio-control:local
+    profiles:
+      - rtl_tcp
+    restart: unless-stopped
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    entrypoint: ["rtl_tcp"]
+    command: ["-a", "0.0.0.0", "-p", "1234"]
+    ports:
+      - "192.168.1.10:1234:1234"
+    networks:
+      - my_rasp_network
+
   adsb_api:
     build:
       context: ./backend
