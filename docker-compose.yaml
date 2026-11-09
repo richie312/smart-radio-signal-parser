@@ -69,6 +69,21 @@ services:
     networks:
       - my_rasp_network
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: adsb-frontend
+    restart: unless-stopped
+    environment:
+      VITE_DEV_API_TARGET: http://adsb_api:8000
+    depends_on:
+      - adsb_api
+    ports:
+      - "127.0.0.1:5173:5173"
+    networks:
+      - my_rasp_network
+
 networks:
   my_rasp_network:
     external: true
