@@ -8,6 +8,7 @@ import json
 import math
 import re
 import uuid
+from urllib.parse import quote
 from pathlib import Path
 from typing import Any
 from urllib.request import Request as URLRequest, urlopen
@@ -317,9 +318,13 @@ def create_app(repository: Repository | None = None, settings: Settings | None =
             return cached[1]
         aircraft_data = route_data = None
         provider_error = False
+        api_headers = {
+            "User-Agent": "SmartRadioSignalParser-ADSB/1.0 (+https://github.com/richie312/smart-radio-signal-parser; maintainer: Richie)",
+            "Accept": "application/json",
+        }
         try:
             params = {"callsign": clean_callsign} if clean_callsign else None
-            async with httpx.AsyncClient(timeout=httpx.Timeout(4.0), follow_redirects=False) as client:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(4.0), follow_redirects=False, headers=api_headers) as client:
                 response = await client.get(f"https://api.adsbdb.com/v0/aircraft/{key}", params=params)
             if response.status_code == 200:
                 payload = response.json()
@@ -332,9 +337,12 @@ def create_app(repository: Repository | None = None, settings: Settings | None =
         except (httpx.HTTPError, ValueError):
             provider_error = True
 
-        photo_url = aircraft_data.get("url_photo") if aircraft_data else None
-        thumb_url = aircraft_data.get("url_photo_thumbnail") if aircraft_data else None
-        allowed_photo_hosts = {"airport-data.com", "www.airport-data.com", "image.airport-data.com"}
+        photo_url = thumb_url = photo_page = photo_credit = None
+        photo_provider_id = None
+        allowed_photo_hosts = {
+            "t.plnspttrs.net", "www.planespotters.net", "planespotters.net",
+            "airport-data.com", "www.airport-data.com", "image.airport-data.com",
+        }
         def safe_photo_url(value):
             if not isinstance(value, str): return None
             try:
@@ -342,34 +350,45 @@ def create_app(repository: Repository | None = None, settings: Settings | None =
                 return value if parsed.scheme == "https" and parsed.host in allowed_photo_hosts else None
             except Exception:
                 return None
-        photo_url = safe_photo_url(photo_url) or safe_photo_url(thumb_url)
-        thumb_url = safe_photo_url(thumb_url) or photo_url
-        photo_provider_id = "adsbdb" if photo_url else None
-        photo_attribution = "Photo data via ADSBDB / airport-data.com" if photo_url else None
-        source_page = "https://airport-data.com/"
-        if not photo_url:
+        if clean_callsign:
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(4.0), follow_redirects=False) as client:
-                    photo_response = await client.get(
-                        "https://airport-data.com/api/ac_thumb.json",
-                        params={"m": key, "n": 1},
-                    )
-                if photo_response.status_code == 200:
-                    photo_payload = photo_response.json()
-                    photos = photo_payload.get("data") if isinstance(photo_payload, dict) else None
-                    photo_record = photos[0] if isinstance(photos, list) and photos and isinstance(photos[0], dict) else None
-                    if photo_record:
-                        photo_url = safe_photo_url(photo_record.get("image"))
-                        thumb_url = photo_url
-                        source_page = safe_photo_url(photo_record.get("link")) or source_page
-                        photographer = photo_record.get("photographer")
-                        if photo_url:
-                            photo_provider_id = "airport-data"
-                            photo_attribution = f"Photo by {photographer} via Airport-Data.com" if isinstance(photographer, str) and photographer.strip() else "Photo via Airport-Data.com"
-                elif photo_response.status_code not in (404,):
-                    provider_error = True
+                async with httpx.AsyncClient(timeout=httpx.Timeout(4.0), follow_redirects=False, headers=api_headers) as client:
+                    live_response = await client.get(f"https://api.adsb.lol/v2/callsign/{clean_callsign}")
+                    if live_response.status_code == 200:
+                        live_payload = live_response.json()
+                        live_list = live_payload.get("ac", []) if isinstance(live_payload, dict) else []
+                        live_aircraft = next((item for item in live_list if isinstance(item, dict)
+                                              and isinstance(item.get("flight"), str)
+                                              and item["flight"].strip().upper() == clean_callsign
+                                              and str(item.get("hex", "")).lower() == key), None)
+                        registration = live_aircraft.get("r") if live_aircraft else None
+                        if isinstance(registration, str) and registration.strip():
+                            photo_response = await client.get(
+                                "https://api.planespotters.net/pub/photos/reg/" + quote(registration.strip(), safe="")
+                            )
+                            if photo_response.status_code == 200:
+                                photo_payload = photo_response.json()
+                                photos = photo_payload.get("photos", []) if isinstance(photo_payload, dict) else []
+                                photo_record = photos[0] if isinstance(photos, list) and photos and isinstance(photos[0], dict) else None
+                                if photo_record:
+                                    thumbnail = photo_record.get("thumbnail")
+                                    image = photo_record.get("image")
+                                    thumb_url = safe_photo_url(thumbnail.get("src") if isinstance(thumbnail, dict) else None)
+                                    photo_url = safe_photo_url(image.get("src") if isinstance(image, dict) else None) or thumb_url
+                                    photo_page = safe_photo_url(photo_record.get("link"))
+                                    photographer = photo_record.get("photographer")
+                                    if isinstance(photographer, str) and photographer.strip():
+                                        photo_credit = f"Photo by {photographer.strip()} via Planespotters.net"
+                                    elif photo_url:
+                                        photo_credit = "Photo via Planespotters.net"
+                                    if photo_url:
+                                        photo_provider_id = "planespotters"
+                    elif live_response.status_code != 404:
+                        provider_error = True
             except (httpx.HTTPError, ValueError):
                 provider_error = True
+        photo_attribution = photo_credit
+        source_page = photo_page or "https://www.planespotters.net/"
         fetched_at = now.isoformat()
         image = {"state": "available" if photo_url else ("unavailable" if provider_error else "not_found"),
                  "provider_id": photo_provider_id,

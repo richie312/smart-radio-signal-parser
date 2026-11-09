@@ -184,7 +184,7 @@ function AircraftMapPopup({ aircraft }: { aircraft: AircraftSummary }) {
       <div className="flight-popup-metrics"><div><span>Speed</span><strong>{observation.ground_speed_kt === null ? 'Unavailable' : `${Math.round(observation.ground_speed_kt)} kt`}</strong></div><div><span>Altitude</span><strong>{altitude}</strong></div></div>
       <div className="flight-popup-destination"><span>Destination</span><strong>{destination || (loading ? 'Looking up route…' : 'Unavailable for this callsign')}</strong></div>
       {route?.airline && <small className="flight-popup-airline">{route.airline}</small>}
-      {imageUrl && <small className="flight-popup-source">{photoCredit || 'Photo credit'} · <a href={photoSource ?? 'https://airport-data.com/'} target="_blank" rel="noreferrer">Source</a></small>}
+      {imageUrl && <small className="flight-popup-source">{photoCredit || 'Photo credit'} · <a href={photoSource ?? 'https://www.planespotters.net/'} target="_blank" rel="noreferrer">Source</a></small>}
       {destination && <small className="flight-popup-source">Published route via <a href="https://adsbdb.com/" target="_blank" rel="noreferrer">ADSBDB</a>; may not reflect this live leg</small>}
     </div>
   </Popup>;
