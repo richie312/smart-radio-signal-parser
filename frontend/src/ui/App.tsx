@@ -130,8 +130,8 @@ function coordinateFromEnv(value: string | undefined, minimum: number, maximum: 
   return Number.isFinite(parsed) && parsed >= minimum && parsed <= maximum ? parsed : null;
 }
 
-const defaultSiteLatitude = coordinateFromEnv(import.meta.env.VITE_DEFAULT_SITE_LATITUDE, -90, 90);
-const defaultSiteLongitude = coordinateFromEnv(import.meta.env.VITE_DEFAULT_SITE_LONGITUDE, -180, 180);
+const defaultSiteLatitude = coordinateFromEnv(import.meta.env.VITE_DEFAULT_SITE_LATITUDE, -90, 90) ?? 17.464331081994303;
+const defaultSiteLongitude = coordinateFromEnv(import.meta.env.VITE_DEFAULT_SITE_LONGITUDE, -180, 180) ?? 78.35043066717977;
 const defaultSitePosition: [number, number] | null = defaultSiteLatitude !== null && defaultSiteLongitude !== null
   ? [defaultSiteLatitude, defaultSiteLongitude]
   : null;
