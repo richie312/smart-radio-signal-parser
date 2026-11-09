@@ -25,7 +25,7 @@ services:
     environment:
       RADIO_CONTROL_TOKEN: ${RADIO_CONTROL_TOKEN:?Set RADIO_CONTROL_TOKEN in .env}
       OPERATING_MODE: ${OPERATING_MODE:-adsb}
-      READSB_DEVICE: ${READSB_DEVICE:-0}
+      READSB_DEVICE: ${READSB_DEVICE:-1}
     networks:
       - my_rasp_network
 
@@ -42,7 +42,7 @@ services:
     devices:
       - /dev/bus/usb:/dev/bus/usb
     entrypoint: ["rtl_tcp"]
-    command: ["-d", "${RTL_TCP_DEVICE:-1}", "-g", "${RTL_TCP_GAIN:-40}", "-a", "0.0.0.0", "-p", "1234"]
+    command: ["-d", "${RTL_TCP_DEVICE:-0}", "-g", "${RTL_TCP_GAIN:-40}", "-a", "0.0.0.0", "-p", "1234"]
     ports:
       - "192.168.1.10:1234:1234"
     networks:

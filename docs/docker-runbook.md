@@ -139,11 +139,11 @@ Stopping `gpsd` and `radio_control` releases the USB devices. To return GPS to t
 
 ## Run RTL-SDR Blog V4 (`rtl_tcp`) alongside ADS-B
 
-The ADS-B and V4 services can run together when each selects a different RTL-SDR. The Compose defaults assign device index `0` to readsb and index `1` to `rtl_tcp`. Device selection accepts an index or USB serial. If you know the unique serials, use those in `.env` for stable selection across USB re-enumeration:
+The ADS-B and V4L services can run together when each selects a different RTL-SDR. On `.10`, `rtl_tcp` logs identify device index `0` as `RTLSDRBlog, Blog V4L` and index `1` as `Realtek, RTL2838UHIDIR`; both devices report serial `00000001`, so configure them by index. The Compose defaults assign index `1` to readsb and index `0` to `rtl_tcp`:
 
 ```sh
-READSB_DEVICE=0
-RTL_TCP_DEVICE=1
+READSB_DEVICE=1
+RTL_TCP_DEVICE=0
 RTL_TCP_GAIN=40
 ```
 
