@@ -6,6 +6,8 @@ These documents define the documentation baseline for the ADS-B web application.
 
 For image builds, service startup, logs, and shutdown, see the [Docker build and runbook](./docs/docker-runbook.md).
 
+For antenna lengths and receive-antenna types for ADS-B, aviation, FM, satellite, and AM experiments, see the [RTL-SDR antenna guidelines](./docs/antenna-guidelines.md).
+
 ## Documents
 
 1. [Project overview](./docs/adsb/00-project-overview.md)

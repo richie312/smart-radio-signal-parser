@@ -344,7 +344,7 @@ function AircraftDetail({ aircraft, onClose }: { aircraft: AircraftSummary; onCl
   </aside>;
 }
 
-function AudioPanel({ audio, loading, error, refresh }: { audio: AudioConfig | null; loading: boolean; error: ApiError | null; refresh: () => void }) {
+function AudioPanel({ audio, loading, error, refresh, test }: { audio: AudioConfig | null; loading: boolean; error: ApiError | null; refresh: () => void; test: boolean }) {
   const [selected, setSelected] = useState<string>('');
   const [playing, setPlaying] = useState(false);
   const [switching, setSwitching] = useState(false);
@@ -381,11 +381,11 @@ function AudioPanel({ audio, loading, error, refresh }: { audio: AudioConfig | n
   return <section className="panel audio-panel" aria-labelledby="audio-heading">
     <div className="panel-heading"><div><span className="eyebrow">AVIATION AUDIO</span><h2 id="audio-heading">Station monitor</h2></div><span className="audio-icon" aria-hidden="true">♫</span></div>
     <ErrorNotice error={error} onRetry={refresh} compact />
-    {loading && !audio ? <LoadingLine label="Checking audio configuration…" /> : audio?.stations.length ? <>
+    {loading && !audio ? <LoadingLine label="Checking audio configuration…" /> : error && !audio ? <div className="audio-empty"><StatePill state="offline" /><h3>Station list unavailable</h3><p>The backend has not returned the station configuration. Retry after it is ready.</p></div> : audio?.stations.length ? <>
       <p className="audio-intro">{audio?.airport}. Starting a station pauses ADS-B on this single tuner.</p>
       <label className="station-select">Station<select value={selected} onChange={(event) => setSelected(event.target.value)}><option value="">Choose station</option>{audio.stations.map((item) => <option key={item.station_id} value={item.station_id}>{item.name}{item.frequency_mhz ? ` · ${item.frequency_mhz} MHz` : ''}</option>)}</select></label>
       {station && <div className="station-meta"><StatePill state={station.state} /><span>{station.band ?? 'Band unspecified'} · {station.modulation ?? 'Modulation unspecified'}</span></div>}
-      <div className="audio-controls"><button className="listen-button" disabled={switching || (!audioMode && !selected)} onClick={stopCurrent ? stop : play}>{switching ? 'Switching receiver…' : stopCurrent ? 'Stop listening · resume ADS-B' : audioMode ? 'Switch station' : 'Start listening · pause ADS-B'}</button><label className="volume-label"><span>Volume</span><input type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => setVolume(Number(event.target.value))} aria-label="Audio volume" /></label><button className="mute-button" onClick={() => setMuted((value) => !value)} aria-pressed={muted}>{muted ? 'Unmute' : 'Mute'}</button></div>
+      <div className="audio-controls"><button className="listen-button" disabled={test || switching || (!audioMode && !selected)} onClick={stopCurrent ? stop : play}>{test ? 'Preview only · backend unavailable' : switching ? 'Switching receiver…' : stopCurrent ? 'Stop listening · resume ADS-B' : audioMode ? 'Switch station' : 'Start listening · pause ADS-B'}</button><label className="volume-label"><span>Volume</span><input type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => setVolume(Number(event.target.value))} aria-label="Audio volume" /></label><button className="mute-button" onClick={() => setMuted((value) => !value)} aria-pressed={muted}>{muted ? 'Unmute' : 'Mute'}</button></div>
       {!selected && !audioMode && <p className="audio-unavailable">Select a station to enable listening. ADS-B reception resumes when you stop audio.</p>}
       {audioMode && !playing && <p className="audio-unavailable">Listening mode is active. Select Play to open the live audio in this browser.</p>}
       {actionError && <p className="audio-unavailable">{actionError}</p>}
@@ -418,7 +418,7 @@ export default function App() {
           <AircraftTable rows={data.aircraft.value} loading={data.aircraft.loading} error={data.aircraft.error} refresh={data.refresh} selected={selected} onSelect={setSelected} status={data.status.value} nextCursor={data.nextCursor} loadMore={data.loadMore} loadingMore={data.loadingMore} moreError={data.moreError} />
           <AnalyticsPanel summary={data.summary.value} series={data.series.value} loading={data.summary.loading || data.series.loading} error={data.summary.error ?? data.series.error} timeHours={data.timeHours} setTimeHours={data.setTimeHours} />
         </div>
-        <aside className="side-column" aria-label="Receiver details and audio"><AudioPanel audio={data.audio.value} loading={data.audio.loading} error={data.audio.error} refresh={data.refresh} />
+        <aside className="side-column" aria-label="Receiver details and audio"><AudioPanel audio={data.audio.value} loading={data.audio.loading} error={data.audio.error} refresh={data.refresh} test={testMode} />
           <section className="panel provenance-card"><span className="eyebrow">DATA PROVENANCE</span><h2>Observed here.<br />Enriched elsewhere.</h2><p>Aircraft positions and timestamps come from the local receiver. Flight details and images are external enrichment and may be incomplete.</p><div className="provenance-legend"><span><i className="legend-local" />Local observation</span><span><i className="legend-external" />External information</span></div></section>
           <div className="backend-note"><StatePill state={data.status.value?.database.state ?? 'offline'} /><span>Database connection</span><small>{data.status.value?.database.error_code ? `Error: ${data.status.value.database.error_code}` : 'Status from API'}</small></div>
         </aside>

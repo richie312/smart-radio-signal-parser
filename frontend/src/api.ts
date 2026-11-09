@@ -1,6 +1,19 @@
 import type { AnalyticsSummary, AnalyticsTimeseries, AudioConfig, AircraftPopupEnrichment, AircraftSummary, ComponentStatus, Page, Problem, SystemStatus } from './contracts';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+const API_TIMEOUT_MS = 10_000;
+
+function requestSignal(signal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(API_TIMEOUT_MS);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
+function requestFailure(error: unknown): ApiError {
+  if (error instanceof DOMException && error.name === 'TimeoutError') {
+    return new ApiError('The API did not respond within 10 seconds. Check that the backend is ready, then retry.', 'request_timeout');
+  }
+  return new ApiError('The API could not be reached. Check the connection and retry.');
+}
 
 export class ApiError extends Error {
   constructor(message: string, readonly code = 'network_error', readonly requestId: string | null = null) {
@@ -12,10 +25,10 @@ export class ApiError extends Error {
 async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${path}`, { headers: { Accept: 'application/json' }, signal });
+    response = await fetch(`${API_BASE}${path}`, { headers: { Accept: 'application/json' }, signal: requestSignal(signal) });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
-    throw new ApiError('The API could not be reached. Check the connection and retry.');
+    throw requestFailure(error);
   }
   const body = await response.json().catch(() => null) as T | Problem | null;
   if (!response.ok) {
@@ -38,8 +51,9 @@ export const api = {
       response = await fetch(`${API_BASE}/api/v1/audio/start`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ station_id: stationId }),
+        signal: requestSignal(),
       });
-    } catch { throw new ApiError('The API could not be reached. Check the connection and retry.'); }
+    } catch (error) { throw requestFailure(error); }
     const body = await response.json().catch(() => null);
     if (!response.ok) {
       const problem = body as Problem | null;
@@ -49,8 +63,8 @@ export const api = {
   },
   stopAudio: async () => {
     let response: Response;
-    try { response = await fetch(`${API_BASE}/api/v1/audio/stop`, { method: 'POST', headers: { Accept: 'application/json' } }); }
-    catch { throw new ApiError('The API could not be reached. Check the connection and retry.'); }
+    try { response = await fetch(`${API_BASE}/api/v1/audio/stop`, { method: 'POST', headers: { Accept: 'application/json' }, signal: requestSignal() }); }
+    catch (error) { throw requestFailure(error); }
     const body = await response.json().catch(() => null);
     if (!response.ok) {
       const problem = body as Problem | null;

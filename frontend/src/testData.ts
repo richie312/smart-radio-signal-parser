@@ -35,4 +35,21 @@ export const testTimeseries: AnalyticsTimeseries = {
   buckets: Array.from({ length: 6 }, (_, i) => ({ bucket_start: stamp((5 - i) * 10), decoded_frame_count: null, aircraft_update_count: 20, distinct_aircraft_count: 1 })),
 };
 
-export const testAudio: AudioConfig = { state: 'unconfigured', airport: '', source: '', mode: null, station_id: null, stations: [] };
+export const testAudio: AudioConfig = {
+  state: 'unconfigured',
+  airport: 'Rajiv Gandhi International Airport, Hyderabad (VOHS)',
+  source: 'https://aim-india.aai.aero/eaip/eaip-v2-08-2026/eAIP/IN-AD%202.1VOHS-en-GB.html',
+  mode: null,
+  station_id: null,
+  stations: [
+    { station_id: 'vohs_atis', name: 'VOHS ATIS', frequency_mhz: 126.475, band: 'VHF airband', modulation: 'AM', state: 'unconfigured', playback_url: null },
+    { station_id: 'vohs_tower', name: 'Shamshabad Tower', frequency_mhz: 118.200, band: 'VHF airband', modulation: 'AM', state: 'unconfigured', playback_url: null },
+    { station_id: 'vohs_tower_alt', name: 'Shamshabad Tower (alternate)', frequency_mhz: 118.450, band: 'VHF airband', modulation: 'AM', state: 'unconfigured', playback_url: null },
+    { station_id: 'vohs_ground', name: 'Shamshabad Ground', frequency_mhz: 121.850, band: 'VHF airband', modulation: 'AM', state: 'unconfigured', playback_url: null },
+    { station_id: 'vohs_delivery', name: 'Shamshabad Delivery', frequency_mhz: 121.625, band: 'VHF airband', modulation: 'AM', state: 'unconfigured', playback_url: null },
+    { station_id: 'vohs_approach_1', name: 'Hyderabad Approach / Radar', frequency_mhz: 120.250, band: 'VHF airband', modulation: 'AM', state: 'unconfigured', playback_url: null },
+    { station_id: 'vohs_approach_2', name: 'Hyderabad Approach / Radar (alternate)', frequency_mhz: 125.550, band: 'VHF airband', modulation: 'AM', state: 'unconfigured', playback_url: null },
+    { station_id: 'vohs_control_1', name: 'Hyderabad Control / Radar', frequency_mhz: 120.950, band: 'VHF airband', modulation: 'AM', state: 'unconfigured', playback_url: null },
+    { station_id: 'vohs_control_2', name: 'Hyderabad Control / Radar (alternate)', frequency_mhz: 128.350, band: 'VHF airband', modulation: 'AM', state: 'unconfigured', playback_url: null },
+  ],
+};

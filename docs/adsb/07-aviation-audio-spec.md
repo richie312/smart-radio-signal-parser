@@ -26,6 +26,8 @@ The single-tuner operating model is exclusive. Starting audio stops readsb and p
 
 Asynchronous frequency scanning, speech/squelch detection, and recording are deferred. No WAV binary is stored in MySQL. No audio path may alter existing Python scripts as part of this specification.
 
+An embedded RF spectrum/waterfall display and arbitrary-frequency tuning are also deferred. The controller currently provides a curated Hyderabad station list and runs either readsb or the AM audio pipeline on the single tuner. A waterfall needs a raw-IQ/FFT path and would compete with those modes; use SDR++ for spectrum exploration after arranging exclusive access to the tuner.
+
 ## Browser behavior
 
 Show unavailable/configuration-required when there is no verified source. Provide accessible play/stop, volume and mute controls if supported, visible connection/error status, and browser autoplay-safe user initiation. Handle unsupported codec and network loss with actionable state. See [frontend](08-react-frontend-spec.md) and [security](09-docker-config-and-security.md).
