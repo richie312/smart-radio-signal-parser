@@ -144,7 +144,10 @@ The ADS-B and V4 services can run together when each selects a different RTL-SDR
 ```sh
 READSB_DEVICE=0
 RTL_TCP_DEVICE=1
+RTL_TCP_GAIN=40
 ```
+
+`RTL_TCP_GAIN` sets the server's initial manual tuner gain in dB (default 40). An RTL-TCP client such as SDR++ can override gain after connecting, so keep its saved tuner gain or Tuner AGC setting at a useful value too.
 
 Start the ADS-B stack and V4 independently; do not stop `radio_control` when starting V4:
 
