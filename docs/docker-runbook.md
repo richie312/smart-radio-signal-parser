@@ -109,12 +109,14 @@ Choose a Hyderabad VOHS station and click **Start listening · pause ADS-B**. Th
 
 The presets are based on the current published [AAI eAIP VOHS communication facilities](https://aim-india.aai.aero/eaip/eaip-v2-08-2026/eAIP/IN-AD%202.1VOHS-en-GB.html). Frequencies can change; review the current AIP before use. This setup does not transmit. Keep the stream private and verify applicable local rules before sharing or rebroadcasting it.
 
-No decoder or GPSD port is published on the host. The API binds to `.10` at `192.168.1.10:8010` for the Windows dashboard. Keep this API port limited to the trusted local network because its audio mode controls do not require user authentication. Vite proxies its API calls to this host address:
+No decoder or GPSD port is published on the host. The API binds to `.10` at `192.168.1.10:8010` for the dashboard. Keep this API port limited to the trusted local network because its audio mode controls do not require user authentication. The React/Vite development server runs in the `frontend` container and proxies API calls to `adsb_api` over the Compose network. Start it on `.10` and open it from a LAN client:
 
-```powershell
-$env:VITE_DEV_API_TARGET = 'http://192.168.1.10:8010'
-npm.cmd run dev -- --host 127.0.0.1
+```sh
+docker compose up -d --build frontend
+sudo ufw allow from 192.168.1.0/24 to any port 5173 proto tcp
 ```
+
+Open `http://192.168.1.10:5173`. Follow its output with `docker compose logs -f frontend`.
 
 ## Stop, restart, and rollback
 
