@@ -15,6 +15,7 @@ import time
 PORT = int(os.getenv("RADIO_CONTROL_PORT", "8090"))
 TOKEN = os.environ["RADIO_CONTROL_TOKEN"]
 INITIAL_MODE = os.getenv("OPERATING_MODE", "adsb")
+RTLSDR_DEVICE = os.getenv("READSB_DEVICE", "0")
 STATIONS = json.loads(Path("/app/stations.json").read_text())["stations"]
 STATION_BY_ID = {item["station_id"]: item for item in STATIONS}
 lock = threading.RLock()
@@ -60,7 +61,7 @@ def start_adsb() -> None:
     global readsb, mode, active_station_id
     stop_children()
     readsb = subprocess.Popen([
-        "/usr/local/bin/readsb", "--quiet", "--net", "--device", "0",
+        "/usr/local/bin/readsb", "--quiet", "--net", "--device", RTLSDR_DEVICE,
         "--device-type", "rtlsdr", "--gain", "auto",
         "--net-bind-address", "0.0.0.0", "--net-json-port", "30006",
         "--net-sbs-port", "30003",
@@ -82,7 +83,7 @@ def start_audio(station_id: str) -> None:
     frequency_hz = int(round(float(station["frequency_mhz"]) * 1_000_000))
     try:
         rtl_fm = subprocess.Popen([
-            "rtl_fm", "-f", str(frequency_hz), "-M", "am", "-s", "24000",
+            "rtl_fm", "-d", RTLSDR_DEVICE, "-f", str(frequency_hz), "-M", "am", "-s", "24000",
             "-g", "40", "-l", "0", "-",
         ], stdout=subprocess.PIPE, stderr=None)
         ffmpeg = subprocess.Popen([

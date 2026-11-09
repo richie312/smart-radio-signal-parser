@@ -124,6 +124,18 @@ function MapViewport({ points, pointsKey }: { points: [number, number][]; points
 
 type BrowserLocation = { latitude: number; longitude: number; accuracy_m: number | null };
 
+function coordinateFromEnv(value: string | undefined, minimum: number, maximum: number): number | null {
+  if (!value?.trim()) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= minimum && parsed <= maximum ? parsed : null;
+}
+
+const defaultSiteLatitude = coordinateFromEnv(import.meta.env.VITE_DEFAULT_SITE_LATITUDE, -90, 90);
+const defaultSiteLongitude = coordinateFromEnv(import.meta.env.VITE_DEFAULT_SITE_LONGITUDE, -180, 180);
+const defaultSitePosition: [number, number] | null = defaultSiteLatitude !== null && defaultSiteLongitude !== null
+  ? [defaultSiteLatitude, defaultSiteLongitude]
+  : null;
+
 function useBrowserLocation(): BrowserLocation | null {
   const [location, setLocation] = useState<BrowserLocation | null>(null);
   useEffect(() => {
@@ -181,9 +193,10 @@ function AircraftMapPopup({ aircraft }: { aircraft: AircraftSummary }) {
 function FlightMap({ rows, site, browserLocation }: { rows: AircraftSummary[] | null; site: SiteLocation | undefined; browserLocation: BrowserLocation | null }) {
   const serverHasFix = site?.state === 'online' && Number.isFinite(site.latitude) && Number.isFinite(site.longitude);
   const usingBrowserLocation = !serverHasFix && browserLocation !== null;
+  const usingDefaultLocation = !serverHasFix && !browserLocation && defaultSitePosition !== null;
   const sitePosition: [number, number] | null = serverHasFix
     ? [site!.latitude as number, site!.longitude as number]
-    : browserLocation ? [browserLocation.latitude, browserLocation.longitude] : null;
+    : browserLocation ? [browserLocation.latitude, browserLocation.longitude] : defaultSitePosition;
   const locationAccuracy = serverHasFix ? site?.accuracy_m : browserLocation?.accuracy_m;
   const flights = useMemo(() => (rows ?? []).filter((aircraft) => Date.now() - new Date(aircraft.last_seen_at).getTime() <= 15 * 60_000).flatMap((aircraft) => {
     const observation = aircraft.last_observation;
@@ -197,6 +210,8 @@ function FlightMap({ rows, site, browserLocation }: { rows: AircraftSummary[] | 
   const pointsKey = points.map(([lat, lon]) => `${lat.toFixed(4)},${lon.toFixed(4)}`).join('|');
   const fixLabel = usingBrowserLocation
     ? `Laptop location · accuracy ${locationAccuracy == null ? 'unavailable' : `±${Math.round(locationAccuracy)} m`}`
+    : usingDefaultLocation
+    ? 'Configured default receiver location'
     : site?.state === 'online'
     ? `GPS fix · ${site.satellites_used ?? 0} satellites used`
     : site?.state === 'no_fix'
@@ -206,14 +221,14 @@ function FlightMap({ rows, site, browserLocation }: { rows: AircraftSummary[] | 
   return <section className="panel map-panel" aria-labelledby="map-heading">
     <div className="map-heading">
       <div><span className="eyebrow">LIVE POSITIONS</span><h2 id="map-heading">Receiver and aircraft map</h2></div>
-      <div className="map-legend"><span><i className="map-legend-site" />{usingBrowserLocation ? 'Laptop location' : 'Your receiver'}</span><span><i className="map-legend-aircraft" />Aircraft</span></div>
+      <div className="map-legend"><span><i className="map-legend-site" />{usingBrowserLocation ? 'Laptop location' : usingDefaultLocation ? 'Default location' : 'Your receiver'}</span><span><i className="map-legend-aircraft" />Aircraft</span></div>
     </div>
-    <div className="map-status"><StatePill state={usingBrowserLocation ? 'online' : site?.state ?? 'offline'} /><span>{fixLabel}</span><span>{flights.length} aircraft with positions in the last 15 minutes</span></div>
+    <div className="map-status"><StatePill state={usingBrowserLocation || serverHasFix ? 'online' : usingDefaultLocation ? 'degraded' : site?.state ?? 'offline'} /><span>{fixLabel}</span><span>{flights.length} aircraft with positions in the last 15 minutes</span></div>
     {points.length ? <div className="map-frame">
       <MapContainer center={points[0]} zoom={7} scrollWheelZoom className="flight-map">
         <TileLayer url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>' />
         <MapViewport points={points} pointsKey={pointsKey} />
-        {sitePosition && <Marker position={sitePosition} icon={receiverMarkerIcon}><Popup><strong>{usingBrowserLocation ? 'Laptop location' : 'Your receiver'}</strong><br />{locationAccuracy == null ? 'Accuracy unavailable' : `±${locationAccuracy.toFixed(1)} m accuracy`}</Popup></Marker>}
+        {sitePosition && <Marker position={sitePosition} icon={receiverMarkerIcon}><Popup><strong>{usingBrowserLocation ? 'Laptop location' : usingDefaultLocation ? 'Configured default receiver location' : 'Your receiver'}</strong><br />{usingDefaultLocation ? `${sitePosition[0].toFixed(5)}, ${sitePosition[1].toFixed(5)}` : locationAccuracy == null ? 'Accuracy unavailable' : `±${locationAccuracy.toFixed(1)} m accuracy`}</Popup></Marker>}
         {flights.map(({ aircraft, observation, position }) => <Marker key={aircraft.icao24} position={position} icon={aircraftMarkerIcon(observation.track_deg)}>
           <AircraftMapPopup aircraft={aircraft} />
         </Marker>)}

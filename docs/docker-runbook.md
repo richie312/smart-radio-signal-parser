@@ -1,10 +1,11 @@
 # Docker build and runbook
 
-Run commands from the repository root on `.10`. Compose builds a radio controller image, a GPSD sidecar, and the API image. The radio controller owns the RTL-SDR and runs exactly one receive process at a time: readsb for ADS-B, or rtl_fm plus FFmpeg for airband AM audio. The GPSD sidecar owns the VK-172 USB serial device and shares the live site fix with the API only on the Docker network. The API proxies browser audio and reads GPSD JSON; it has no USB device mapping or Docker socket.
+Run commands from the repository root on `.10`. Compose builds a radio controller image, a GPSD sidecar, and the API image. The radio controller runs one receive process at a time on its selected ADS-B dongle: readsb for ADS-B, or rtl_fm plus FFmpeg for airband AM audio. The optional V4 `rtl_tcp` service can run simultaneously when configured to use a different dongle. The GPSD sidecar owns the VK-172 USB serial device and shares the live site fix with the API only on the Docker network. The API proxies browser audio and reads GPSD JSON; it has no USB device mapping or Docker socket.
 
 | Service | Purpose |
 | --- | --- |
-| `radio_control` | Owns `/dev/bus/usb`; switches between readsb JSON/SBS output and one selected Hyderabad airband frequency. |
+| `radio_control` | Uses the configured ADS-B RTL-SDR and switches between readsb JSON/SBS output and one selected Hyderabad airband frequency. |
+| `rtl_tcp` (optional profile) | Serves raw IQ from a separately selected RTL-SDR, such as the RTL-SDR Blog V4, on TCP 1234. |
 | `gpsd` | Reads the VK-172 USB GPS at `/dev/serial/by-id/...` and serves GPSD JSON privately on the Compose network. |
 | `adsb_api` | Runs FastAPI, persists ADS-B observations, and provides authenticated internal radio control and audio proxy endpoints. |
 
@@ -118,6 +119,12 @@ sudo ufw allow from 192.168.1.0/24 to any port 5173 proto tcp
 
 Open `http://192.168.1.10:5173`. Follow its output with `docker compose logs -f frontend`.
 
+Browser geolocation is restricted on an insecure HTTP LAN origin such as `http://192.168.1.10`. Set the site's fixed fallback coordinates in `.env` as `DEFAULT_SITE_LATITUDE` and `DEFAULT_SITE_LONGITUDE`; the frontend uses the GPSD fix first, browser location when available, then this static marker. Recreate the frontend after changing them:
+
+```sh
+docker compose up -d --build --force-recreate frontend
+```
+
 ## Stop, restart, and rollback
 
 ```sh
@@ -129,6 +136,37 @@ docker compose stop gpsd radio_control
 ```
 
 Stopping `gpsd` and `radio_control` releases the USB devices. To return GPS to the host daemon, stop the Compose GPSD service before running `sudo systemctl enable --now gpsd.socket gpsd.service`. To roll back to host readsb, stop `radio_control` first and then run `sudo systemctl enable --now readsb`. `docker compose down` removes project containers but leaves the external network and MySQL database intact.
+
+## Run RTL-SDR Blog V4 (`rtl_tcp`) alongside ADS-B
+
+The ADS-B and V4 services can run together when each selects a different RTL-SDR. The Compose defaults assign device index `0` to readsb and index `1` to `rtl_tcp`. Device selection accepts an index or USB serial. If you know the unique serials, use those in `.env` for stable selection across USB re-enumeration:
+
+```sh
+READSB_DEVICE=0
+RTL_TCP_DEVICE=1
+```
+
+Start the ADS-B stack and V4 independently; do not stop `radio_control` when starting V4:
+
+```sh
+docker compose up -d radio_control adsb_api
+docker compose --profile rtl_tcp up -d --build rtl_tcp
+docker compose logs -f rtl_tcp
+```
+
+The `rtl_tcp` service publishes raw IQ on `192.168.1.10:1234`. If UFW is enabled, allow it from the trusted LAN:
+
+```sh
+sudo ufw allow from 192.168.1.0/24 to any port 1234 proto tcp
+```
+
+Stop only V4 when you no longer need its raw-IQ stream; ADS-B keeps running:
+
+```sh
+docker compose --profile rtl_tcp stop rtl_tcp
+```
+
+The earlier V4 log showed it accepting clients before `Signal caught, exiting!` and `bye!`; those messages indicate process shutdown, not a tuner failure. If it exits again, check the container's exit details and confirm `RTL_TCP_DEVICE` and `READSB_DEVICE` select different dongles.
 
 ## Troubleshooting
 
